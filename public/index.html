@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Hextagram PulseChain</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link href="https://fonts.cdnfonts.com/css/codec-pro" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="hex-logo">H</div>
+        <span>Hextagram</span>
+      </div>
+      <nav>
+        <button class="nav-btn active" data-page="feed">Feed</button>
+        <button class="nav-btn" data-page="profile">Profile</button>
+        <button class="nav-btn" id="btn-upload">Upload</button>
+      </nav>
+      <div class="wallet-box">
+        <div id="wallet-address">Not connected</div>
+        <button id="btn-connect">Connect Wallet</button>
+      </div>
+    </aside>
+    <main class="content">
+      <header class="topbar">
+        <input id="search" placeholder="Search on Hextagram" />
+        <div class="pulse-badge">PulseChain</div>
+      </header>
+      <section id="feed" class="page visible">
+        <div id="stories">
+          <div class="story pulse">NPulse</div>
+          <div class="story">PX402</div>
+          <div class="story">HEX</div>
+          <div class="story">PLS</div>
+          <div class="story">PLSX</div>
+        </div>
+        <div id="feed-posts"></div>
+      </section>
+      <section id="profile" class="page">
+        <h2>My profile</h2>
+        <p id="profile-address"></p>
+        <div id="my-posts" class="grid"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="upload-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>New post</h3>
+      <p>Upload goes to Cloudinary, then we save the URL</p>
+
+      <label>Cloudinary unsigned preset</label>
+      <input id="cloud-preset" placeholder="ex: hextagram_unsigned" />
+
+      <label>Cloud name</label>
+      <input id="cloud-name" placeholder="ex: dxxx" />
+
+      <label>Select image or video</label>
+      <input type="file" id="media-file" accept="image/*,video/*" />
+      <label>Caption</label>
+      <textarea id="caption"></textarea>
+      <div class="actions">
+        <button id="cancel-upload">Cancel</button>
+        <button id="do-upload">Upload</button>
+      </div>
+      <div id="upload-status"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
