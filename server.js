@@ -13,6 +13,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -45,14 +46,9 @@ async function authMiddleware(req, res, next) {
 app.get("/api/auth/nonce/:address", async (req, res) => {
   const address = req.params.address.toLowerCase();
   const nonce = genNonce();
-  await query(
-    \`
-    INSERT INTO users(address, nonce)
-    VALUES($1, $2)
-    ON CONFLICT(address) DO UPDATE SET nonce = EXCLUDED.nonce
-    \`,
-    [address, nonce]
-  );
+  const sql =
+    "INSERT INTO users(address, nonce) VALUES($1, $2) ON CONFLICT(address) DO UPDATE SET nonce = EXCLUDED.nonce";
+  await query(sql, [address, nonce]);
   res.json({ nonce });
 });
 
@@ -67,7 +63,7 @@ app.post("/api/auth/verify", async (req, res) => {
     return res.status(400).json({ error: "user not found" });
   }
   const nonce = rows[0].nonce;
-  const message = \`Hextagram login on PulseChain, nonce: \${nonce}\`;
+  const message = "Hextagram login on PulseChain, nonce: " + nonce;
   let recovered;
   try {
     recovered = ethers.verifyMessage(message, signature).toLowerCase();
@@ -95,34 +91,26 @@ app.post("/api/posts", authMiddleware, async (req, res) => {
 });
 
 app.get("/api/posts", async (req, res) => {
-  const { rows } = await query(
-    \`
-    SELECT p.*,
-      COALESCE(l.likes_count,0) as likes_count,
-      COALESCE(c.comments_count,0) as comments_count
-    FROM posts p
-    LEFT JOIN (
-      SELECT post_id, COUNT(*) as likes_count FROM post_likes GROUP BY post_id
-    ) l ON l.post_id = p.id
-    LEFT JOIN (
-      SELECT post_id, COUNT(*) as comments_count FROM post_comments GROUP BY post_id
-    ) c ON c.post_id = p.id
-    ORDER BY p.created_at DESC
-    LIMIT 100
-    \`
-  );
+  const sql =
+    "SELECT p.*, " +
+    "COALESCE(l.likes_count,0) AS likes_count, " +
+    "COALESCE(c.comments_count,0) AS comments_count " +
+    "FROM posts p " +
+    "LEFT JOIN (SELECT post_id, COUNT(*) AS likes_count FROM post_likes GROUP BY post_id) l ON l.post_id = p.id " +
+    "LEFT JOIN (SELECT post_id, COUNT(*) AS comments_count FROM post_comments GROUP BY post_id) c ON c.post_id = p.id " +
+    "ORDER BY p.created_at DESC " +
+    "LIMIT 100";
+  const { rows } = await query(sql);
   res.json(rows);
 });
 
 app.post("/api/posts/:id/like", authMiddleware, async (req, res) => {
   const postId = Number(req.params.id);
   const user_address = req.user.address;
-  try {
-    await query(
-      "INSERT INTO post_likes(post_id, user_address) VALUES($1,$2) ON CONFLICT DO NOTHING",
-      [postId, user_address]
-    );
-  } catch (e) {}
+  await query(
+    "INSERT INTO post_likes(post_id, user_address) VALUES($1,$2) ON CONFLICT DO NOTHING",
+    [postId, user_address]
+  );
   res.json({ ok: true });
 });
 
@@ -156,3 +144,4 @@ initDb().then(() => {
     console.log("Hextagram running on port " + PORT);
   });
 });
+
