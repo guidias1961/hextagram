@@ -23,7 +23,9 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 function genNonce() {
-  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+  const r1 = Math.random().toString(36).substring(2);
+  const r2 = Date.now().toString(36);
+  return r1 + r2;
 }
 
 function createJwt(address) {
@@ -31,15 +33,18 @@ function createJwt(address) {
 }
 
 async function authMiddleware(req, res, next) {
-  const auth = req.headers.authorization;
-  if (!auth) return res.status(401).json({ error: "no token" });
-  const token = auth.replace("Bearer ", "");
+  const h = req.headers.authorization;
+  if (!h) {
+    res.status(401).json({ error: "no token" });
+    return;
+  }
+  const token = h.replace("Bearer ", "");
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.user = payload;
     next();
-  } catch (err) {
-    return res.status(401).json({ error: "invalid token" });
+  } catch (e) {
+    res.status(401).json({ error: "invalid token" });
   }
 }
 
@@ -47,47 +52,53 @@ app.get("/api/auth/nonce/:address", async (req, res) => {
   const address = req.params.address.toLowerCase();
   const nonce = genNonce();
   const sql =
-    "INSERT INTO users(address, nonce) VALUES($1, $2) ON CONFLICT(address) DO UPDATE SET nonce = EXCLUDED.nonce";
+    "INSERT INTO users(address, nonce) VALUES($1,$2) ON CONFLICT(address) DO UPDATE SET nonce = EXCLUDED.nonce";
   await query(sql, [address, nonce]);
-  res.json({ nonce });
+  res.json({ nonce: nonce });
 });
 
 app.post("/api/auth/verify", async (req, res) => {
-  const { address, signature } = req.body;
+  const address = (req.body.address || "").toLowerCase();
+  const signature = req.body.signature;
   if (!address || !signature) {
-    return res.status(400).json({ error: "missing params" });
+    res.status(400).json({ error: "missing params" });
+    return;
   }
-  const addr = address.toLowerCase();
-  const { rows } = await query("SELECT nonce FROM users WHERE address = $1", [addr]);
-  if (!rows.length) {
-    return res.status(400).json({ error: "user not found" });
+  const dbRes = await query("SELECT nonce FROM users WHERE address = $1", [address]);
+  if (dbRes.rows.length === 0) {
+    res.status(400).json({ error: "user not found" });
+    return;
   }
-  const nonce = rows[0].nonce;
+  const nonce = dbRes.rows[0].nonce;
   const message = "Hextagram login on PulseChain, nonce: " + nonce;
   let recovered;
   try {
     recovered = ethers.verifyMessage(message, signature).toLowerCase();
   } catch (e) {
-    return res.status(400).json({ error: "invalid signature" });
+    res.status(400).json({ error: "invalid signature" });
+    return;
   }
-  if (recovered !== addr) {
-    return res.status(400).json({ error: "address mismatch" });
+  if (recovered !== address) {
+    res.status(400).json({ error: "address mismatch" });
+    return;
   }
-  const token = createJwt(addr);
-  res.json({ token });
+  const token = createJwt(address);
+  res.json({ token: token });
 });
 
 app.post("/api/posts", authMiddleware, async (req, res) => {
-  const { media_url, media_type, caption } = req.body;
+  const media_url = req.body.media_url;
+  const media_type = req.body.media_type;
+  const caption = req.body.caption || "";
   if (!media_url || !media_type) {
-    return res.status(400).json({ error: "missing fields" });
+    res.status(400).json({ error: "missing fields" });
+    return;
   }
   const user_address = req.user.address;
-  const { rows } = await query(
-    "INSERT INTO posts(user_address, media_url, media_type, caption) VALUES($1,$2,$3,$4) RETURNING *",
-    [user_address, media_url, media_type, caption || ""]
-  );
-  res.json(rows[0]);
+  const sql =
+    "INSERT INTO posts(user_address, media_url, media_type, caption) VALUES($1,$2,$3,$4) RETURNING *";
+  const result = await query(sql, [user_address, media_url, media_type, caption]);
+  res.json(result.rows[0]);
 });
 
 app.get("/api/posts", async (req, res) => {
@@ -100,39 +111,38 @@ app.get("/api/posts", async (req, res) => {
     "LEFT JOIN (SELECT post_id, COUNT(*) AS comments_count FROM post_comments GROUP BY post_id) c ON c.post_id = p.id " +
     "ORDER BY p.created_at DESC " +
     "LIMIT 100";
-  const { rows } = await query(sql);
-  res.json(rows);
+  const result = await query(sql);
+  res.json(result.rows);
 });
 
 app.post("/api/posts/:id/like", authMiddleware, async (req, res) => {
   const postId = Number(req.params.id);
   const user_address = req.user.address;
-  await query(
-    "INSERT INTO post_likes(post_id, user_address) VALUES($1,$2) ON CONFLICT DO NOTHING",
-    [postId, user_address]
-  );
+  const sql =
+    "INSERT INTO post_likes(post_id, user_address) VALUES($1,$2) ON CONFLICT DO NOTHING";
+  await query(sql, [postId, user_address]);
   res.json({ ok: true });
 });
 
 app.post("/api/posts/:id/comment", authMiddleware, async (req, res) => {
   const postId = Number(req.params.id);
   const user_address = req.user.address;
-  const { content } = req.body;
-  if (!content) return res.status(400).json({ error: "no content" });
-  const { rows } = await query(
-    "INSERT INTO post_comments(post_id, user_address, content) VALUES($1,$2,$3) RETURNING *",
-    [postId, user_address, content]
-  );
-  res.json(rows[0]);
+  const content = req.body.content;
+  if (!content) {
+    res.status(400).json({ error: "no content" });
+    return;
+  }
+  const sql =
+    "INSERT INTO post_comments(post_id, user_address, content) VALUES($1,$2,$3) RETURNING *";
+  const result = await query(sql, [postId, user_address, content]);
+  res.json(result.rows[0]);
 });
 
 app.get("/api/posts/:id/comments", async (req, res) => {
   const postId = Number(req.params.id);
-  const { rows } = await query(
-    "SELECT * FROM post_comments WHERE post_id = $1 ORDER BY created_at ASC",
-    [postId]
-  );
-  res.json(rows);
+  const sql = "SELECT * FROM post_comments WHERE post_id = $1 ORDER BY created_at ASC";
+  const result = await query(sql, [postId]);
+  res.json(result.rows);
 });
 
 app.get("*", (req, res) => {
