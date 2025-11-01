@@ -20,10 +20,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-
-// serve tudo que estiver em public
 app.use(express.static(path.join(__dirname, "public")));
-// e também o diretório raiz caso o Railway coloque arquivos na raiz
 app.use(express.static(__dirname));
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -58,6 +55,7 @@ function authenticate(req, res, next) {
   }
 }
 
+// 1) login com assinatura
 app.post("/api/auth", async (req, res) => {
   try {
     const { address, message, signature } = req.body;
@@ -82,10 +80,37 @@ app.post("/api/auth", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.json({ success: true, token, address: address.toLowerCase() });
+    return res.json({ success: true, token, address: address.toLowerCase() });
   } catch (err) {
     console.error("auth error:", err);
-    res.status(500).json({ error: "auth failed" });
+    return res.status(500).json({ error: "auth failed" });
+  }
+});
+
+// 2) login simples sem assinatura (fallback)
+app.post("/api/auth/simple", async (req, res) => {
+  try {
+    const { address } = req.body;
+    if (!address) {
+      return res.status(400).json({ error: "address required" });
+    }
+
+    await query(
+      `INSERT INTO users (address) VALUES ($1::text)
+       ON CONFLICT (address) DO NOTHING`,
+      [address.toLowerCase()]
+    );
+
+    const token = jwt.sign(
+      { address: address.toLowerCase() },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    return res.json({ success: true, token, address: address.toLowerCase() });
+  } catch (err) {
+    console.error("auth simple error:", err);
+    return res.status(500).json({ error: "auth simple failed" });
   }
 });
 
@@ -191,7 +216,6 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// fallback
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });

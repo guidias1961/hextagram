@@ -42,7 +42,7 @@ function setupWallet() {
 
 async function connectWallet() {
   if (!window.ethereum) {
-    alert("MetaMask não encontrada");
+    alert("MetaMask/Brave wallet não encontrada");
     return;
   }
 
@@ -51,24 +51,41 @@ async function connectWallet() {
     const accounts = await provider.send("eth_requestAccounts", []);
     const address = accounts[0];
 
+    // tenta mudar para pulsechain, se falhar ignora
     try {
       await provider.send("wallet_switchEthereumChain", [{ chainId: "0x171" }]);
     } catch (err) {
-      console.log("não trocou para pulsechain, seguindo");
+      console.log("não trocou rede, seguindo mesmo assim");
     }
 
     const signer = await provider.getSigner();
     const message = `Login to Hextagram\n${new Date().toISOString()}\n${address}`;
-    const signature = await signer.signMessage(message);
 
-    const resp = await fetch("/api/auth", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address, message, signature })
-    });
+    let signature = null;
+    try {
+      signature = await signer.signMessage(message);
+    } catch (err) {
+      console.warn("signMessage falhou, vou usar fallback simples:", err);
+    }
+
+    let resp;
+    if (signature) {
+      resp = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, message, signature })
+      });
+    } else {
+      resp = await fetch("/api/auth/simple", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address })
+      });
+    }
+
     const data = await resp.json();
-
     if (!resp.ok) {
+      console.error("auth error resp:", data);
       alert(data.error || "erro ao autenticar");
       return;
     }
@@ -79,8 +96,8 @@ async function connectWallet() {
     loadFeed();
     loadProfile();
   } catch (err) {
-    console.error(err);
-    alert("erro ao conectar wallet");
+    console.error("connectWallet error:", err);
+    alert(err.message || "erro ao conectar wallet");
   }
 }
 
