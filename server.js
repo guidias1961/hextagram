@@ -20,7 +20,6 @@ app.use(express.static(path.join(__dirname, "public")));
 
 await initDb();
 
-// rota publica para o front pegar o cloudinary
 app.get("/api/config", (req, res) => {
   res.json({
     cloudName: process.env.CLOUDINARY_CLOUD_NAME || "dg2xpadhr",
@@ -28,7 +27,6 @@ app.get("/api/config", (req, res) => {
   });
 });
 
-// login por wallet
 app.post("/api/auth", async (req, res) => {
   try {
     const { address, message, signature } = req.body;
@@ -41,7 +39,6 @@ app.post("/api/auth", async (req, res) => {
       return res.status(401).json({ error: "signature invalid" });
     }
 
-    // cria user se não existir
     await query(
       `insert into users (address) values ($1)
        on conflict (address) do nothing`,
@@ -61,7 +58,6 @@ app.post("/api/auth", async (req, res) => {
   }
 });
 
-// middleware auth
 function auth(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth) return res.status(401).json({ error: "no token" });
@@ -75,7 +71,6 @@ function auth(req, res, next) {
   }
 }
 
-// get perfil próprio
 app.get("/api/profile/me", auth, async (req, res) => {
   const address = req.user.address;
   const r = await query(
@@ -85,7 +80,6 @@ app.get("/api/profile/me", auth, async (req, res) => {
   res.json(r.rows[0] || null);
 });
 
-// get perfil público
 app.get("/api/profile/:address", async (req, res) => {
   const r = await query(
     "select address, username, bio, avatar_url from users where address=$1",
@@ -94,7 +88,6 @@ app.get("/api/profile/:address", async (req, res) => {
   res.json(r.rows[0] || null);
 });
 
-// update perfil
 app.put("/api/profile", auth, async (req, res) => {
   const address = req.user.address;
   const { username, bio, avatar_url } = req.body;
@@ -113,7 +106,6 @@ app.put("/api/profile", auth, async (req, res) => {
   res.json(r.rows[0]);
 });
 
-// criar post
 app.post("/api/posts", auth, async (req, res) => {
   const address = req.user.address;
   const { media_url, caption } = req.body;
@@ -129,19 +121,36 @@ app.post("/api/posts", auth, async (req, res) => {
   res.json(r.rows[0]);
 });
 
-// feed
 app.get("/api/posts", async (req, res) => {
-  const r = await query(
-    `select p.*, u.username, u.avatar_url
-     from posts p
-     left join users u on u.address = p.address
-     order by p.created_at desc
-     limit 100`
-  );
-  res.json(r.rows);
+  try {
+    const r = await query(
+      `select
+         p.id,
+         p.media_url,
+         p.caption,
+         p.created_at,
+         p.address,
+         u.username,
+         u.avatar_url
+       from posts p
+       left join users u on u.address = p.address
+       order by p.created_at desc
+       limit 100`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    // fallback se por algum motivo não deu tempo de alterar a tabela
+    console.error("feed query error", err);
+    const r2 = await query(
+      `select id, media_url, caption, created_at
+       from posts
+       order by created_at desc
+       limit 100`
+    );
+    res.json(r2.rows);
+  }
 });
 
-// qualquer outra rota
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });

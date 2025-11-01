@@ -15,6 +15,7 @@ export const pool = new Pool({
 });
 
 export async function initDb() {
+  // users
   await pool.query(`
     create table if not exists users (
       address text primary key,
@@ -25,15 +26,25 @@ export async function initDb() {
     );
   `);
 
+  // posts (primeira versão que tu tinha)
   await pool.query(`
     create table if not exists posts (
       id serial primary key,
-      address text,
       media_url text not null,
       caption text,
-      created_at timestamptz default now(),
-      foreign key (address) references users(address) on delete set null
+      created_at timestamptz default now()
     );
+  `);
+
+  // garante que exista a coluna address mesmo que a tabela já estivesse criada
+  await pool.query(`
+    alter table posts
+    add column if not exists address text;
+  `);
+
+  // opcional para index
+  await pool.query(`
+    create index if not exists posts_created_at_idx on posts(created_at desc);
   `);
 }
 
