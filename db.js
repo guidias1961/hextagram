@@ -13,34 +13,33 @@ export const pool = new Pool({
   ssl,
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000
+  connectionTimeoutMillis: 20000
 });
 
 export async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
-      address text PRIMARY KEY,
-      username text,
-      bio text,
-      avatar_url text,
-      created_at timestamptz DEFAULT now()
+      address TEXT PRIMARY KEY,
+      username TEXT,
+      avatar_url TEXT,
+      bio TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS posts (
-      id serial PRIMARY KEY,
-      user_address text NOT NULL,
-      media_url text NOT NULL,
-      caption text,
-      created_at timestamptz DEFAULT now(),
-      CONSTRAINT fk_user FOREIGN KEY (user_address)
-        REFERENCES users(address) ON DELETE CASCADE
+      id SERIAL PRIMARY KEY,
+      user_address TEXT REFERENCES users(address) ON DELETE CASCADE,
+      media_url TEXT NOT NULL,
+      caption TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
 }
 
 export async function query(text, params) {
-  return pool.query(text, params);
+  const res = await pool.query(text, params);
+  return res;
 }
 

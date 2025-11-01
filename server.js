@@ -1,223 +1,124 @@
-// server.js
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
-import { query, initDb } from "./db.js";
 import multer from "multer";
-import { Web3Storage, File } from "web3.storage";
-import path from "node:path";
-import fs from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath } from "url";
+import path from "path";
+import { initDb, query } from "./db.js";
+import { create as storachaCreate } from "@storacha/client";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-
-const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret_key_2024";
-const RAW_TOKEN = process.env.W3S_TOKEN || "";
-const PORT = process.env.PORT || 3000;
-
-// detecta se é token de web3.storage (começa com "ey" pq é JWT)
-const isWeb3Token = RAW_TOKEN.startsWith("ey");
-const WEB3_TOKEN = isWeb3Token ? RAW_TOKEN : "";
-
-const uploadsDir = path.join(__dirname, "public", "uploads");
-try {
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
-} catch (err) {
-  console.warn("não consegui criar pasta de upload, vou usar data url");
-}
-
-app.use(cors());
-app.use(express.json({ limit: "20mb" }));
-app.use(express.static(path.join(__dirname, "public")));
-app.use("/uploads", express.static(uploadsDir));
-
 const upload = multer({ storage: multer.memoryStorage() });
 
-let w3sClient = null;
+const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret";
+const PORT = process.env.PORT || 3000;
 
-async function bootstrap() {
-  await initDb();
+const STORACHA_KEY = process.env.STORACHA_KEY || "";
+const STORACHA_PROOF = process.env.STORACHA_PROOF || "";
+const STORACHA_SPACE_DID = process.env.STORACHA_SPACE_DID || "";
 
-  if (WEB3_TOKEN) {
-    w3sClient = new Web3Storage({ token: WEB3_TOKEN });
-    console.log("✓ web3.storage ativo");
-  } else {
-    console.log("web3.storage desativado (token não é do web3.storage)");
-  }
+let storachaClient = null;
 
-  app.listen(PORT, () => console.log("Hextagram na porta", PORT));
-}
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
 
 function auth(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "no auth" });
-  const token = authHeader.split(" ")[1];
+  const h = req.headers.authorization;
+  if (!h) return res.status(401).json({ error: "no token" });
+  const token = h.split(" ")[1];
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    req.user = jwt.verify(token, JWT_SECRET);
     next();
-  } catch (err) {
+  } catch (e) {
     return res.status(401).json({ error: "invalid token" });
   }
 }
 
-// login simples
 app.post("/api/auth/simple", async (req, res) => {
-  try {
-    const { address } = req.body;
-    if (!address) return res.status(400).json({ error: "address required" });
-
-    await query(
-      `INSERT INTO users (address) VALUES ($1::text)
-       ON CONFLICT (address) DO NOTHING`,
-      [address.toLowerCase()]
-    );
-
-    const token = jwt.sign({ address: address.toLowerCase() }, JWT_SECRET, {
-      expiresIn: "7d"
-    });
-
-    res.json({ success: true, token, address: address.toLowerCase() });
-  } catch (err) {
-    console.error("auth simple:", err);
-    res.status(500).json({ error: "auth failed" });
-  }
+  const { address } = req.body;
+  if (!address) return res.status(400).json({ error: "address required" });
+  await query(
+    "INSERT INTO users (address) VALUES ($1) ON CONFLICT (address) DO NOTHING",
+    [address.toLowerCase()]
+  );
+  const token = jwt.sign({ address: address.toLowerCase() }, JWT_SECRET, { expiresIn: "7d" });
+  res.json({ token, address: address.toLowerCase() });
 });
 
-// upload com 3 fallbacks
 app.post("/api/upload-media", auth, upload.single("media"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "no file" });
+    if (!storachaClient) return res.status(500).json({ error: "storacha not ready" });
 
-    const buf = req.file.buffer;
-    const originalName = req.file.originalname || "image.png";
-    const mime = req.file.mimetype || "image/png";
+    const file = new File([req.file.buffer], req.file.originalname, {
+      type: req.file.mimetype
+    });
 
-    // 1) tenta web3.storage
-    if (w3sClient) {
-      try {
-        const file = new File([buf], originalName, { type: mime });
-        const cid = await w3sClient.put([file], { wrapWithDirectory: false });
-        const mediaUrl = `https://${cid}.ipfs.dweb.link`;
-        return res.json({ success: true, media_url: mediaUrl, storage: "ipfs" });
-      } catch (err) {
-        console.warn("falha no web3.storage:", err.message);
-      }
-    }
-
-    // 2) tenta salvar local
-    try {
-      const filename =
-        Date.now() + "-" + originalName.replace(/\s+/g, "_").toLowerCase();
-      const fullPath = path.join(uploadsDir, filename);
-      fs.writeFileSync(fullPath, buf);
-      const mediaUrl = `/uploads/${filename}`;
-      return res.json({ success: true, media_url: mediaUrl, storage: "local" });
-    } catch (err) {
-      console.warn("falha ao escrever local:", err.message);
-    }
-
-    // 3) último recurso: data url
-    const b64 = buf.toString("base64");
-    const dataUrl = `data:${mime};base64,${b64}`;
-    return res.json({ success: true, media_url: dataUrl, storage: "dataurl" });
+    const cid = await storachaClient.uploadFile(file);
+    const url = `https://${cid}.ipfs.storacha.link/${req.file.originalname}`;
+    return res.json({ success: true, media_url: url });
   } catch (err) {
-    console.error("upload error final:", err);
-    return res.status(500).json({ error: "upload failed" });
+    console.error("storacha upload error", err);
+    return res.status(500).json({ error: "upload failed", detail: err.message });
   }
 });
 
-// criar post
 app.post("/api/posts", auth, async (req, res) => {
-  try {
-    const { address } = req.user;
-    const { media_url, caption } = req.body;
-    if (!media_url) return res.status(400).json({ error: "media_url required" });
+  const { address } = req.user;
+  const { media_url, caption } = req.body;
+  if (!media_url) return res.status(400).json({ error: "media_url required" });
 
-    const result = await query(
-      `INSERT INTO posts (user_address, media_url, caption)
-       VALUES ($1::text, $2::text, $3::text)
-       RETURNING id, user_address AS address, media_url, caption, created_at`,
-      [address, media_url, caption || null]
-    );
-
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error("create post:", err);
-    res.status(500).json({ error: "failed to create post" });
-  }
+  const r = await query(
+    `INSERT INTO posts (user_address, media_url, caption)
+     VALUES ($1, $2, $3)
+     RETURNING id, user_address AS address, media_url, caption, created_at`,
+    [address, media_url, caption || null]
+  );
+  res.status(201).json(r.rows[0]);
 });
 
-// listar posts
 app.get("/api/posts", async (req, res) => {
-  try {
-    const result = await query(
-      `SELECT p.id,
-              p.user_address AS address,
-              p.media_url,
-              p.caption,
-              p.created_at,
-              u.username,
-              u.avatar_url
-       FROM posts p
-       LEFT JOIN users u ON u.address = p.user_address
-       ORDER BY p.created_at DESC
-       LIMIT 200`
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error("get posts:", err);
-    res.status(500).json({ error: "failed to fetch posts" });
-  }
+  const r = await query(
+    `SELECT id, user_address AS address, media_url, caption, created_at
+     FROM posts
+     ORDER BY created_at DESC
+     LIMIT 200`
+  );
+  res.json(r.rows);
 });
 
 app.get("/api/profile/me", auth, async (req, res) => {
-  try {
-    const { address } = req.user;
-    const r = await query(
-      `SELECT address, username, bio, avatar_url, created_at
-       FROM users WHERE address = $1::text`,
-      [address]
-    );
-    if (r.rows.length === 0) return res.json({ address });
-    res.json(r.rows[0]);
-  } catch (err) {
-    console.error("profile:", err);
-    res.status(500).json({ error: "failed to fetch profile" });
+  const r = await query(
+    `SELECT address, username, bio, avatar_url, created_at
+     FROM users WHERE address = $1`,
+    [req.user.address]
+  );
+  if (r.rows.length === 0) return res.json({ address: req.user.address });
+  res.json(r.rows[0]);
+});
+
+async function start() {
+  await initDb();
+
+  if (STORACHA_KEY && STORACHA_PROOF && STORACHA_SPACE_DID) {
+    storachaClient = await storachaCreate({
+      principal: STORACHA_KEY,
+      proof: STORACHA_PROOF,
+      space: STORACHA_SPACE_DID
+    });
+    console.log("Storacha conectado ao space", STORACHA_SPACE_DID);
+  } else {
+    console.warn("Storacha vars faltando, configure no Railway");
   }
-});
 
-app.put("/api/profile", auth, async (req, res) => {
-  try {
-    const { address } = req.user;
-    const { username, bio, avatar_url } = req.body;
-    await query(
-      `UPDATE users SET
-        username = $1::text,
-        bio = $2::text,
-        avatar_url = $3::text
-       WHERE address = $4::text`,
-      [username || null, bio || null, avatar_url || null, address]
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("update profile:", err);
-    res.status(500).json({ error: "failed to update profile" });
-  }
-});
+  app.listen(PORT, () => {
+    console.log("Hextagram na porta", PORT);
+  });
+}
 
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true });
-});
-
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
-
-bootstrap();
+start();
 
