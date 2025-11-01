@@ -20,13 +20,10 @@ app.use(express.static(path.join(__dirname, "public")));
 
 await initDb();
 
-app.get("/api/config", (req, res) => {
-  res.json({
-    cloudName: process.env.CLOUDINARY_CLOUD_NAME || "dg2xpadhr",
-    uploadPreset: process.env.CLOUDINARY_UPLOAD_PRESET || "hextagram_unsigned"
-  });
-});
+// só pra tu ver que o backend está vivo
+app.get("/ping", (req, res) => res.json({ ok: true }));
 
+// login por assinatura
 app.post("/api/auth", async (req, res) => {
   try {
     const { address, message, signature } = req.body;
@@ -47,10 +44,7 @@ app.post("/api/auth", async (req, res) => {
       [addr]
     );
 
-    const token = jwt.sign({ address: addr }, JWT_SECRET, {
-      expiresIn: "7d"
-    });
-
+    const token = jwt.sign({ address: addr }, JWT_SECRET, { expiresIn: "7d" });
     res.json({ token, address: addr });
   } catch (err) {
     console.error("auth error", err);
@@ -63,14 +57,14 @@ function auth(req, res, next) {
   if (!h) return res.status(401).json({ error: "no token" });
   const token = h.split(" ")[1];
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.user = payload;
+    req.user = jwt.verify(token, JWT_SECRET);
     next();
-  } catch (err) {
+  } catch (e) {
     return res.status(401).json({ error: "invalid token" });
   }
 }
 
+// pegar perfil
 app.get("/api/profile/me", auth, async (req, res) => {
   const addr = req.user.address;
   const r = await query(
@@ -80,17 +74,16 @@ app.get("/api/profile/me", auth, async (req, res) => {
   res.json(r.rows[0] || null);
 });
 
+// atualizar perfil
 app.put("/api/profile", auth, async (req, res) => {
   const addr = req.user.address;
   const { username, bio, avatar_url } = req.body;
-
   await query(
     `update users
      set username=$1, bio=$2, avatar_url=$3
      where address=$4`,
     [username || null, bio || null, avatar_url || null, addr]
   );
-
   const r = await query(
     "select address, username, bio, avatar_url from users where address=$1",
     [addr]
@@ -98,14 +91,12 @@ app.put("/api/profile", auth, async (req, res) => {
   res.json(r.rows[0]);
 });
 
+// criar post (já com address preenchido)
 app.post("/api/posts", auth, async (req, res) => {
   try {
     const addr = req.user.address;
     const { media_url, caption } = req.body;
-
-    if (!media_url) {
-      return res.status(400).json({ error: "media_url required" });
-    }
+    if (!media_url) return res.status(400).json({ error: "media_url required" });
 
     const r = await query(
       `insert into posts (user_address, address, media_url, caption)
@@ -121,6 +112,7 @@ app.post("/api/posts", auth, async (req, res) => {
   }
 });
 
+// listar posts
 app.get("/api/posts", async (req, res) => {
   const r = await query(
     `select
@@ -139,6 +131,7 @@ app.get("/api/posts", async (req, res) => {
   res.json(r.rows);
 });
 
+// front
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });

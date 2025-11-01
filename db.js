@@ -14,7 +14,6 @@ export const pool = new Pool({
 });
 
 export async function initDb() {
-  // users
   await pool.query(`
     create table if not exists users (
       address text primary key,
@@ -25,7 +24,6 @@ export async function initDb() {
     );
   `);
 
-  // posts
   await pool.query(`
     create table if not exists posts (
       id serial primary key,
@@ -37,36 +35,13 @@ export async function initDb() {
     );
   `);
 
-  // garante as duas colunas
   await pool.query(`alter table posts add column if not exists user_address text;`);
   await pool.query(`alter table posts add column if not exists address text;`);
 
-  // se tiver NOT NULL antigo, solta
-  await pool.query(`
-    do $$
-    begin
-      if exists (
-        select 1
-        from information_schema.columns
-        where table_name = 'posts'
-          and column_name = 'user_address'
-          and is_nullable = 'NO'
-      ) then
-        alter table posts alter column user_address drop not null;
-      end if;
-    end $$;
-  `);
-
-  // sincroniza dados antigos
   await pool.query(`
     update posts
     set address = user_address
     where address is null and user_address is not null;
-  `);
-
-  await pool.query(`
-    create index if not exists posts_created_at_idx
-    on posts (created_at desc);
   `);
 }
 
