@@ -11,32 +11,32 @@ import { query } from './db.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// garante /uploads
+const app = express();
+
+// pastas
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-// servir os arquivos que vc já upou
+
+// servir uploads e front
 app.use('/uploads', express.static(uploadsDir));
+app.use(express.static(__dirname)); // isso permite servir index.html que está na raiz
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hextagram-secret';
 
-// storage local
-const diskStorage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadsDir);
-  },
-  filename: function (req, file, cb) {
+// multer local
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
     const ext = path.extname(file.originalname || '');
-    const name = Date.now() + '-' + Math.round(Math.random() * 1e9) + ext;
-    cb(null, name);
+    cb(null, Date.now() + '-' + Math.round(Math.random() * 1e9) + ext);
   }
 });
-const upload = multer({ storage: diskStorage });
+const upload = multer({ storage });
 
 // helpers
 function verifySignature(address, message, signature) {
@@ -47,11 +47,9 @@ function verifySignature(address, message, signature) {
     return false;
   }
 }
-
 function makeToken(address) {
   return jwt.sign({ address }, JWT_SECRET, { expiresIn: '30d' });
 }
-
 function getAddressFromReq(req) {
   const auth = req.headers.authorization;
   if (!auth) return null;
@@ -64,7 +62,7 @@ function getAddressFromReq(req) {
   }
 }
 
-// cria tabelas se não existirem
+// migrations mínimas
 async function ensureTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -75,7 +73,6 @@ async function ensureTables() {
       created_at timestamp default now()
     );
   `);
-
   await query(`
     CREATE TABLE IF NOT EXISTS posts (
       id serial PRIMARY KEY,
@@ -86,7 +83,6 @@ async function ensureTables() {
       created_at timestamp default now()
     );
   `);
-
   await query(`
     CREATE TABLE IF NOT EXISTS post_likes (
       id serial PRIMARY KEY,
@@ -96,7 +92,6 @@ async function ensureTables() {
       UNIQUE (post_id, user_address)
     );
   `);
-
   await query(`
     CREATE TABLE IF NOT EXISTS post_comments (
       id serial PRIMARY KEY,
@@ -106,7 +101,6 @@ async function ensureTables() {
       created_at timestamp default now()
     );
   `);
-
   await query(`
     CREATE TABLE IF NOT EXISTS follows (
       id serial PRIMARY KEY,
@@ -116,8 +110,7 @@ async function ensureTables() {
       UNIQUE (follower_address, following_address)
     );
   `);
-
-  // garante media_type p/ posts antigos
+  // normaliza posts antigos
   await query(`UPDATE posts SET media_type = 'image' WHERE media_type IS NULL;`);
 }
 
@@ -125,37 +118,36 @@ async function ensureTables() {
 app.post('/api/auth', async (req, res) => {
   const { address, message, signature } = req.body;
   if (!address || !message || !signature) {
-    return res.status(400).json({ error: 'Missing auth fields' });
+    return res.status(400).json({ error: 'Missing auth data' });
   }
   const ok = verifySignature(address, message, signature);
-  if (!ok) {
-    return res.status(401).json({ error: 'Invalid signature' });
-  }
+  if (!ok) return res.status(401).json({ error: 'Invalid signature' });
+
+  const addr = address.toLowerCase();
   await query(
     `INSERT INTO users (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`,
-    [address.toLowerCase()]
+    [addr]
   );
-  const token = makeToken(address.toLowerCase());
-  return res.json({ token, address: address.toLowerCase() });
+
+  const token = makeToken(addr);
+  return res.json({ token, address: addr });
 });
 
-// UPLOAD DE MÍDIA DO POST (LOCAL)
+// upload de mídia de post
 app.post('/api/upload-media', upload.single('media'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const finalUrl = '/uploads/' + req.file.filename;
-    return res.json({ ok: true, url: finalUrl, name: req.file.filename });
-  } catch (err) {
-    console.error('upload-media error', err);
-    return res.status(500).json({ error: 'Upload failed' });
-  }
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  return res.json({
+    ok: true,
+    url: '/uploads/' + req.file.filename,
+    name: req.file.filename
+  });
 });
 
-// UPLOAD DE AVATAR (LOCAL)
+// upload de avatar
 app.post('/api/profile/avatar', upload.single('avatar'), async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
-  if (!req.file) return res.status(400).json({ error: 'No avatar uploaded' });
+  if (!req.file) return res.status(400).json({ error: 'No avatar' });
 
   const avatarUrl = '/uploads/' + req.file.filename;
   await query(
@@ -165,7 +157,7 @@ app.post('/api/profile/avatar', upload.single('avatar'), async (req, res) => {
   return res.json({ ok: true, avatar_url: avatarUrl });
 });
 
-// CREATE POST
+// criar post
 app.post('/api/posts', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
@@ -183,7 +175,7 @@ app.post('/api/posts', async (req, res) => {
   return res.json(result.rows[0]);
 });
 
-// LIST POSTS (FEED / EXPLORE)
+// feed + explore
 app.get('/api/posts', async (req, res) => {
   const viewer = getAddressFromReq(req);
 
@@ -223,11 +215,10 @@ app.get('/api/posts', async (req, res) => {
   return res.json(posts);
 });
 
-// LIKE / UNLIKE
+// like
 app.post('/api/posts/:id/like', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
-
   const postId = Number(req.params.id);
   if (!postId) return res.status(400).json({ error: 'Invalid post id' });
 
@@ -260,7 +251,7 @@ app.post('/api/posts/:id/like', async (req, res) => {
   });
 });
 
-// COMMENTS
+// comments
 app.get('/api/posts/:id/comments', async (req, res) => {
   const postId = Number(req.params.id);
   const result = await query(
@@ -283,10 +274,9 @@ app.get('/api/posts/:id/comments', async (req, res) => {
 app.post('/api/posts/:id/comments', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
-
   const postId = Number(req.params.id);
   const { content } = req.body;
-  if (!content || !content.trim()) return res.status(400).json({ error: 'Content required' });
+  if (!content || !content.trim()) return res.status(400).json({ error: 'content required' });
 
   const result = await query(
     `INSERT INTO post_comments (post_id, user_address, content)
@@ -297,12 +287,12 @@ app.post('/api/posts/:id/comments', async (req, res) => {
   return res.json(result.rows[0]);
 });
 
-// DELETE POST
+// delete post
 app.delete('/api/posts/:id', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
-
   const postId = Number(req.params.id);
+
   const post = await query(`SELECT * FROM posts WHERE id = $1`, [postId]);
   if (post.rowCount === 0) return res.status(404).json({ error: 'Post not found' });
 
@@ -314,7 +304,7 @@ app.delete('/api/posts/:id', async (req, res) => {
   return res.json({ ok: true });
 });
 
-// PROFILE
+// profile atual
 app.get('/api/profile/me', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
@@ -337,6 +327,7 @@ app.get('/api/profile/me', async (req, res) => {
   });
 });
 
+// update profile
 app.put('/api/profile', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
@@ -349,7 +340,7 @@ app.put('/api/profile', async (req, res) => {
   return res.json({ ok: true });
 });
 
-// FOLLOW / UNFOLLOW
+// follow
 app.post('/api/follow/:address', async (req, res) => {
   const me = getAddressFromReq(req);
   const other = req.params.address.toLowerCase();
@@ -375,6 +366,11 @@ app.delete('/api/follow/:address', async (req, res) => {
     [me.toLowerCase(), other]
   );
   return res.json({ ok: true });
+});
+
+// fallback pra SPA
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000;
