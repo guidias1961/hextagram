@@ -16,6 +16,7 @@ const init = async () => {
       avatar_url text
     );
   `);
+
   await pool.query(`
     create table if not exists posts (
       id serial primary key,
@@ -26,6 +27,7 @@ const init = async () => {
       created_at timestamptz default now()
     );
   `);
+
   await pool.query(`
     create table if not exists likes (
       id serial primary key,
@@ -34,6 +36,7 @@ const init = async () => {
       unique (post_id, user_address)
     );
   `);
+
   await pool.query(`
     create table if not exists comments (
       id serial primary key,

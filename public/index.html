@@ -1,91 +1,90 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Hextagram PulseChain</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <div id="app">
-    <aside class="sidebar">
-      <div class="logo">
-        <div class="hex-logo">H</div>
-        <span>Hextagram</span>
-      </div>
-      <nav>
-        <button class="nav-btn active" data-page="feed">Feed</button>
-        <button class="nav-btn" data-page="profile">Profile</button>
-        <button class="nav-btn" id="btn-upload">Upload</button>
-      </nav>
-      <div class="wallet-box">
-        <div id="wallet-address">Not connected</div>
-        <button id="btn-connect">Connect Wallet</button>
-      </div>
-    </aside>
-    <main class="content">
-      <header class="topbar">
-        <input id="search" placeholder="Search on Hextagram" />
-        <div class="pulse-badge">PulseChain</div>
-      </header>
-      <section id="feed" class="page visible">
-        <div id="stories">
-          <div class="story pulse">NPulse</div>
-          <div class="story">PX402</div>
-          <div class="story">HEX</div>
-          <div class="story">PLS</div>
-          <div class="story">PLSX</div>
+  <head>
+    <meta charset="utf-8" />
+    <title>Hextagram</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/styles.css" />
+    <!-- ethers v6 -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.min.js"></script>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="logo">H</div>
+        <nav>
+          <button id="nav-feed" class="nav-btn active">Feed</button>
+          <button id="nav-profile" class="nav-btn">Profile</button>
+          <button id="nav-upload" class="nav-btn">Upload</button>
+        </nav>
+        <div class="wallet-box">
+          <div id="wallet-label">Not connected</div>
+          <button id="connect-wallet" class="connect-btn">Connect Wallet</button>
         </div>
-        <div id="feed-posts"></div>
-      </section>
-      <section id="profile" class="page">
-        <h2>My profile</h2>
-        <p id="profile-address"></p>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <input id="search" placeholder="Search on Hextagram" />
+          <div class="pulse-badge">PulseChain</div>
+        </header>
 
-        <div class="profile-edit">
-          <div class="avatar-row">
-            <div id="avatar-preview" class="avatar-circle"></div>
-            <div>
-              <button id="avatar-upload-btn" type="button">Upload avatar</button>
-              <small class="muted">PNG/JPG até 5MB</small>
-            </div>
-            <input id="avatar-file" type="file" accept="image/*" hidden />
+        <section id="view-feed" class="view active">
+          <div class="stories">
+            <div class="story">NPulse</div>
+            <div class="story">PX402</div>
+            <div class="story">HEX</div>
+            <div class="story">PLS</div>
+            <div class="story">PLSX</div>
           </div>
+          <div id="feed-list" class="feed-list"></div>
+        </section>
 
-          <label>Username</label>
-          <input id="profile-username" placeholder="ex. pulse.degen" />
-          <label>Bio</label>
-          <textarea id="profile-bio" rows="3" placeholder="write about you"></textarea>
-          <label>Avatar URL</label>
-          <input id="profile-avatar" placeholder="https://..." />
-          <button id="profile-save">Save profile</button>
-          <div id="profile-save-status"></div>
-          <div id="avatar-upload-status" class="muted"></div>
-        </div>
+        <section id="view-profile" class="view">
+          <h2>My profile</h2>
+          <div id="my-address" class="muted"></div>
+          <div class="profile-form">
+            <label>Username</label>
+            <input id="pf-username" placeholder="ex. pulse.degen" />
+            <label>Bio</label>
+            <textarea id="pf-bio" placeholder="write about you"></textarea>
+            <label>Avatar</label>
+            <div class="avatar-row">
+              <img id="pf-avatar-preview" class="avatar-preview" src="" alt="avatar" />
+              <button id="pf-avatar-upload" class="small-btn">Upload avatar</button>
+            </div>
+            <input id="pf-avatar-url" placeholder="https://..." />
+            <button id="pf-save" class="save-btn">Save profile</button>
+            <div id="pf-status" class="status"></div>
+          </div>
+          <h3>My posts</h3>
+          <div id="my-posts" class="feed-list"></div>
+        </section>
 
-        <h3>My posts</h3>
-        <div id="my-posts" class="grid"></div>
-      </section>
-    </main>
-  </div>
-
-  <div id="upload-modal" class="modal hidden">
-    <div class="modal-content">
-      <h3>New post</h3>
-      <p>Upload direto para Cloudflare Images</p>
-      <label>Select image</label>
-      <input type="file" id="media-file" accept="image/*" />
-      <label>Caption</label>
-      <textarea id="caption"></textarea>
-      <div class="actions">
-        <button id="cancel-upload" type="button">Cancel</button>
-        <button id="do-upload" type="button">Upload</button>
-      </div>
-      <div id="upload-status"></div>
+        <section id="view-upload" class="view">
+          <h2>New post</h2>
+          <p>Upload direto para Cloudflare Images</p>
+          <input type="file" id="media-file" />
+          <textarea id="caption" placeholder="Caption"></textarea>
+          <button id="do-upload" class="save-btn">Upload</button>
+          <div id="upload-status" class="status"></div>
+        </section>
+      </main>
     </div>
-  </div>
 
-  <script src="app.js"></script>
-</body>
+    <!-- modal p/avatar -->
+    <div id="avatar-modal" class="modal hidden">
+      <div class="modal-body">
+        <h3>Upload avatar</h3>
+        <input type="file" id="avatar-file" />
+        <div id="avatar-upload-status" class="status"></div>
+        <div class="modal-actions">
+          <button id="avatar-cancel" class="small-btn">Cancel</button>
+          <button id="avatar-send" class="save-btn">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
 </html>
 

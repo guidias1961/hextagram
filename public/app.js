@@ -1,390 +1,223 @@
-const PULSE_CHAIN_ID_HEX = "0x171";
+// public/app.js
 
 let jwtToken = null;
 let currentAddress = null;
-let cfDeliveryUrl = "";
+let cfConfig = null;
 
-const feedEl = document.getElementById("feed-posts");
+const feedView = document.getElementById("view-feed");
+const profileView = document.getElementById("view-profile");
+const uploadView = document.getElementById("view-upload");
+
+const navFeed = document.getElementById("nav-feed");
+const navProfile = document.getElementById("nav-profile");
+const navUpload = document.getElementById("nav-upload");
+
+const connectBtn = document.getElementById("connect-wallet");
+const walletLabel = document.getElementById("wallet-label");
+
+const feedList = document.getElementById("feed-list");
 const myPostsEl = document.getElementById("my-posts");
-const walletAddressEl = document.getElementById("wallet-address");
-const profileAddressEl = document.getElementById("profile-address");
-const uploadModal = document.getElementById("upload-modal");
-const btnUpload = document.getElementById("btn-upload");
-const btnConnect = document.getElementById("btn-connect");
-const cancelUpload = document.getElementById("cancel-upload");
-const doUpload = document.getElementById("do-upload");
-const uploadStatus = document.getElementById("upload-status");
-const profileUsernameEl = document.getElementById("profile-username");
-const profileBioEl = document.getElementById("profile-bio");
-const profileAvatarEl = document.getElementById("profile-avatar");
-const profileSaveBtn = document.getElementById("profile-save");
-const profileSaveStatus = document.getElementById("profile-save-status");
-const avatarBtn = document.getElementById("avatar-upload-btn");
-const avatarFile = document.getElementById("avatar-file");
-const avatarPreview = document.getElementById("avatar-preview");
-const avatarUploadStatus = document.getElementById("avatar-upload-status");
 
-document.querySelectorAll(".nav-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    const page = btn.dataset.page;
-    document.querySelectorAll(".page").forEach(pg => pg.classList.remove("visible"));
-    if (page) {
-      document.getElementById(page).classList.add("visible");
-      if (page === "profile") loadMyPosts();
-    }
-  });
+const uploadBtn = document.getElementById("do-upload");
+const uploadStatus = document.getElementById("upload-status");
+
+const pfUsername = document.getElementById("pf-username");
+const pfBio = document.getElementById("pf-bio");
+const pfAvatarUrl = document.getElementById("pf-avatar-url");
+const pfAvatarPreview = document.getElementById("pf-avatar-preview");
+const pfSave = document.getElementById("pf-save");
+const pfStatus = document.getElementById("pf-status");
+const myAddressEl = document.getElementById("my-address");
+
+const avatarModal = document.getElementById("avatar-modal");
+const avatarFile = document.getElementById("avatar-file");
+const avatarCancel = document.getElementById("avatar-cancel");
+const avatarSend = document.getElementById("avatar-send");
+const avatarUploadStatus = document.getElementById("avatar-upload-status");
+const pfAvatarUpload = document.getElementById("pf-avatar-upload");
+
+// troca de view
+function show(view) {
+  feedView.classList.remove("active");
+  profileView.classList.remove("active");
+  uploadView.classList.remove("active");
+  navFeed.classList.remove("active");
+  navProfile.classList.remove("active");
+  navUpload.classList.remove("active");
+
+  view.classList.add("active");
+}
+
+navFeed.addEventListener("click", () => {
+  show(feedView);
+  navFeed.classList.add("active");
+  loadFeed();
 });
 
-if (btnUpload) {
-  btnUpload.addEventListener("click", () => {
-    if (!jwtToken) {
-      alert("Connect wallet first");
-      return;
-    }
-    uploadModal.classList.remove("hidden");
-  });
-}
+navProfile.addEventListener("click", () => {
+  show(profileView);
+  navProfile.classList.add("active");
+  loadProfile();
+});
 
-if (cancelUpload) {
-  cancelUpload.addEventListener("click", () => {
-    uploadModal.classList.add("hidden");
-    uploadStatus.textContent = "";
-  });
-}
+navUpload.addEventListener("click", () => {
+  show(uploadView);
+  navUpload.classList.add("active");
+});
 
-if (btnConnect) {
-  btnConnect.addEventListener("click", async () => {
-    await connectWallet();
-  });
-}
-
-function shortAddr(a) {
-  return a.slice(0, 6) + "..." + a.slice(-4);
-}
-
-async function switchToPulse() {
-  try {
-    await window.ethereum.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: PULSE_CHAIN_ID_HEX }]
-    });
-  } catch (err) {
-    if (err.code === 4902) {
-      await window.ethereum.request({
-        method: "wallet_addEthereumChain",
-        params: [
-          {
-            chainId: PULSE_CHAIN_ID_HEX,
-            chainName: "PulseChain",
-            nativeCurrency: {
-              name: "PLS",
-              symbol: "PLS",
-              decimals: 18
-            },
-            rpcUrls: ["https://rpc.pulsechain.com"],
-            blockExplorerUrls: ["https://scan.pulsechain.com"]
-          }
-        ]
-      });
-    } else {
-      throw err;
-    }
-  }
-}
-
+// conecta wallet
 async function connectWallet() {
   if (!window.ethereum) {
-    alert("Metamask not detected");
+    alert("Metamask not found");
     return;
   }
-  try {
-    const accounts = await window.ethereum.request({
-      method: "eth_requestAccounts"
-    });
-    const address = accounts[0];
-
-    const currentChain = await window.ethereum.request({
-      method: "eth_chainId"
-    });
-    if (currentChain !== PULSE_CHAIN_ID_HEX) {
-      await switchToPulse();
-    }
-
-    currentAddress = address;
-    walletAddressEl.textContent = shortAddr(address);
-    profileAddressEl.textContent = address;
-
-    const nonceRes = await fetch(`/api/auth/nonce/${address}`);
-    const { nonce } = await nonceRes.json();
-
-    const message = `Hextagram login on PulseChain, nonce: ${nonce}`;
-    const signature = await window.ethereum.request({
-      method: "personal_sign",
-      params: [message, address]
-    });
-
-    const verifyRes = await fetch("/api/auth/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address, signature })
-    });
-    const data = await verifyRes.json();
-    if (!data.token) {
-      alert("Auth failed");
+  // garante chain 369
+  const chainId = await window.ethereum.request({ method: "eth_chainId" });
+  if (chainId !== "0x171") {
+    try {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: "0x171" }]
+      });
+    } catch (e) {
+      alert("Switch to PulseChain (chainId 369) in Metamask");
       return;
     }
-    jwtToken = data.token;
-
-    await loadCfConfig();
-    await loadMyProfile();
-    await loadFeed();
-  } catch (err) {
-    console.error(err);
-    alert(err.message || "wallet error");
   }
+
+  const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+  const addr = accounts[0];
+  currentAddress = addr;
+  walletLabel.textContent = addr.slice(0, 6) + "..." + addr.slice(-4);
+
+  // pega nonce
+  const nonceRes = await fetch(`/api/auth/nonce/${addr}`);
+  const nonceData = await nonceRes.json();
+  const nonce = nonceData.nonce;
+
+  const provider = new ethers.BrowserProvider(window.ethereum);
+  const signer = await provider.getSigner();
+  const message = `Hextagram login on PulseChain, nonce: ${nonce}`;
+  const signature = await signer.signMessage(message);
+
+  const verifyRes = await fetch("/api/auth/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address: addr, signature })
+  });
+  const verifyData = await verifyRes.json();
+  if (!verifyRes.ok) {
+    alert("Auth failed");
+    return;
+  }
+  jwtToken = verifyData.token;
+  loadProfile();
+  loadFeed();
 }
 
+connectBtn.addEventListener("click", connectWallet);
+
+// carrega config cloudflare
 async function loadCfConfig() {
-  try {
-    const r = await fetch("/api/cf/config");
-    const d = await r.json();
-    cfDeliveryUrl = (d.deliveryUrl || "").trim();
-  } catch (e) {
-    cfDeliveryUrl = "";
-  }
+  const res = await fetch("/api/cf/config");
+  const data = await res.json();
+  cfConfig = data;
 }
 
-async function loadMyProfile() {
-  if (!jwtToken) return;
-  const r = await fetch("/api/me", {
-    headers: { Authorization: "Bearer " + jwtToken }
-  });
-  const d = await r.json();
-  profileUsernameEl.value = d.username || "";
-  profileBioEl.value = d.bio || "";
-  profileAvatarEl.value = d.avatar_url || "";
-  if (d.avatar_url) {
-    avatarPreview.style.backgroundImage = `url('${d.avatar_url}')`;
-  } else {
-    avatarPreview.style.backgroundImage = "none";
-  }
-}
-
-if (profileSaveBtn) {
-  profileSaveBtn.addEventListener("click", async () => {
-    if (!jwtToken) {
-      alert("Connect wallet first");
-      return;
-    }
-    profileSaveStatus.textContent = "Saving...";
-    const r = await fetch("/api/me", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + jwtToken
-      },
-      body: JSON.stringify({
-        username: profileUsernameEl.value,
-        bio: profileBioEl.value,
-        avatar_url: profileAvatarEl.value
-      })
-    });
-    if (r.ok) {
-      profileSaveStatus.textContent = "Saved";
-      loadFeed();
-    } else {
-      profileSaveStatus.textContent = "Error";
-    }
-  });
-}
-
-if (avatarBtn) {
-  avatarBtn.addEventListener("click", () => {
-    if (!jwtToken) {
-      alert("Connect wallet first");
-      return;
-    }
-    avatarFile.click();
-  });
-}
-
-if (avatarFile) {
-  avatarFile.addEventListener("change", async () => {
-    if (!avatarFile.files.length) return;
-    const file = avatarFile.files[0];
-    avatarUploadStatus.textContent = "Getting upload URL...";
-    const urlRes = await fetch("/api/cf/image-url", {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + jwtToken }
-    });
-    const urlData = await urlRes.json();
-    if (!urlData.uploadURL) {
-      avatarUploadStatus.textContent = "Cloudflare not configured";
-      return;
-    }
-    const fd = new FormData();
-    fd.append("file", file);
-    const upRes = await fetch(urlData.uploadURL, {
-      method: "POST",
-      body: fd
-    });
-    const upData = await upRes.json();
-    if (!upData.success) {
-      avatarUploadStatus.textContent = "Upload failed";
-      return;
-    }
-    let avatarUrl;
-    if (cfDeliveryUrl) {
-      avatarUrl = cfDeliveryUrl.replace(/\/$/, "") + "/" + upData.result.id + "/public";
-    } else if (upData.result.variants && upData.result.variants.length) {
-      avatarUrl = upData.result.variants[0];
-    } else {
-      avatarUploadStatus.textContent = "No public URL";
-      return;
-    }
-    const save = await fetch("/api/me", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + jwtToken
-      },
-      body: JSON.stringify({
-        username: profileUsernameEl.value,
-        bio: profileBioEl.value,
-        avatar_url: avatarUrl
-      })
-    });
-    if (save.ok) {
-      avatarPreview.style.backgroundImage = `url('${avatarUrl}')`;
-      profileAvatarEl.value = avatarUrl;
-      avatarUploadStatus.textContent = "Avatar updated";
-      loadFeed();
-    } else {
-      avatarUploadStatus.textContent = "Error saving avatar";
-    }
-  });
-}
-
+// feed
 async function loadFeed() {
   const res = await fetch("/api/posts");
   const posts = await res.json();
-  renderFeed(posts);
-}
-
-function renderFeed(posts) {
-  feedEl.innerHTML = "";
-  posts.forEach(p => {
+  feedList.innerHTML = "";
+  posts.forEach((p) => {
     const card = document.createElement("div");
     card.className = "post-card";
-    card.innerHTML = `
-      <div class="post-header">
-        <div class="post-user-avatar" style="${p.avatar_url ? `background-image:url('${p.avatar_url}');background-size:cover;background-position:center;` : ""}"></div>
-        <div>
-          <div>${p.username ? p.username : shortAddr(p.user_address)}</div>
-          <small>${new Date(p.created_at).toLocaleString()}</small>
-        </div>
-      </div>
-      <div class="post-media">
-        <img src="${p.media_url}" loading="lazy">
-      </div>
-      <div class="post-actions">
-        <button data-like="${p.id}">Like (${p.likes_count || 0})</button>
-        <button data-comment="${p.id}">Comments (${p.comments_count || 0})</button>
-      </div>
-      <div class="post-caption">${p.caption || ""}</div>
-      <div class="comments-box" id="comments-${p.id}" style="display:none">
-        <input placeholder="Write a comment" data-input="${p.id}">
-      </div>
-    `;
-    feedEl.appendChild(card);
+    const top = document.createElement("div");
+    top.className = "post-top";
+    const avatar = document.createElement("img");
+    avatar.className = "post-avatar";
+    avatar.src = p.avatar_url || "/default-avatar.png";
+    const name = document.createElement("div");
+    name.className = "post-user";
+    name.textContent = p.username || p.user_address.slice(0, 6) + "..." + p.user_address.slice(-4);
+    top.appendChild(avatar);
+    top.appendChild(name);
+
+    const img = document.createElement("img");
+    img.className = "post-media";
+    img.src = p.media_url;
+
+    const cap = document.createElement("div");
+    cap.className = "post-caption";
+    cap.textContent = p.caption || "";
+
+    const meta = document.createElement("div");
+    meta.className = "post-meta";
+    meta.textContent = `${p.likes_count} likes  ${p.comments_count} comments`;
+
+    card.appendChild(top);
+    card.appendChild(img);
+    card.appendChild(cap);
+    card.appendChild(meta);
+    feedList.appendChild(card);
   });
 
-  feedEl.querySelectorAll("[data-like]").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      if (!jwtToken) {
-        alert("Connect wallet");
-        return;
-      }
-      const id = btn.getAttribute("data-like");
-      await fetch(`/api/posts/${id}/like`, {
-        method: "POST",
-        headers: {
-          "Authorization": "Bearer " + jwtToken,
-          "Content-Type": "application/json"
-        }
-      });
-      loadFeed();
+  // meus posts também
+  if (currentAddress && myPostsEl) {
+    const mine = posts.filter((p) => p.user_address.toLowerCase() === currentAddress.toLowerCase());
+    myPostsEl.innerHTML = "";
+    mine.forEach((p) => {
+      const d = document.createElement("div");
+      d.className = "post-card small";
+      d.innerHTML = `<img src="${p.media_url}" class="post-media" /><div class="post-caption">${p.caption || ""}</div>`;
+      myPostsEl.appendChild(d);
     });
-  });
-
-  feedEl.querySelectorAll("[data-comment]").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const id = btn.getAttribute("data-comment");
-      const box = document.getElementById(`comments-${id}`);
-      const visible = box.style.display === "block";
-      if (visible) {
-        box.style.display = "none";
-      } else {
-        box.style.display = "block";
-        loadComments(id);
-      }
-      const input = box.querySelector(`[data-input="${id}"]`);
-      input.addEventListener("keypress", async (e) => {
-        if (e.key === "Enter") {
-          if (!jwtToken) {
-            alert("Connect wallet");
-            return;
-          }
-          const content = e.target.value;
-          if (!content.trim()) return;
-          await fetch(`/api/posts/${id}/comment`, {
-            method: "POST",
-            headers: {
-              "Authorization": "Bearer " + jwtToken,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ content })
-          });
-          e.target.value = "";
-          loadComments(id);
-        }
-      });
-    });
-  });
+  }
 }
 
-async function loadComments(postId) {
-  const res = await fetch(`/api/posts/${postId}/comments`);
-  const comments = await res.json();
-  const box = document.getElementById(`comments-${postId}`);
-  box.querySelectorAll(".cmt").forEach(el => el.remove());
-  comments.forEach(c => {
-    const div = document.createElement("div");
-    div.className = "cmt";
-    div.textContent = shortAddr(c.user_address) + ": " + c.content;
-    box.insertBefore(div, box.lastElementChild);
+// profile
+async function loadProfile() {
+  if (!jwtToken) return;
+  const res = await fetch("/api/me", {
+    headers: { Authorization: "Bearer " + jwtToken }
   });
+  const data = await res.json();
+  myAddressEl.textContent = data.address;
+  pfUsername.value = data.username || "";
+  pfBio.value = data.bio || "";
+  pfAvatarUrl.value = data.avatar_url || "";
+  pfAvatarPreview.src = data.avatar_url || "/default-avatar.png";
 }
 
-async function loadMyPosts() {
-  const res = await fetch("/api/posts");
-  const posts = await res.json();
-  const mine = posts.filter(
-    p => currentAddress && p.user_address.toLowerCase() === currentAddress.toLowerCase()
-  );
-  myPostsEl.innerHTML = "";
-  mine.forEach(p => {
-    const item = document.createElement("div");
-    item.className = "post-card";
-    item.innerHTML = `<img src="${p.media_url}"><div class="post-caption">${p.caption || ""}</div>`;
-    myPostsEl.appendChild(item);
+pfSave.addEventListener("click", async () => {
+  if (!jwtToken) {
+    alert("Connect wallet first");
+    return;
+  }
+  const body = {
+    username: pfUsername.value,
+    bio: pfBio.value,
+    avatar_url: pfAvatarUrl.value
+  };
+  const res = await fetch("/api/me", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + jwtToken
+    },
+    body: JSON.stringify(body)
   });
-}
+  if (res.ok) {
+    pfStatus.textContent = "Saved";
+    loadFeed();
+  } else {
+    pfStatus.textContent = "Error saving";
+  }
+});
 
-if (doUpload) {
-  doUpload.addEventListener("click", async () => {
+// upload de post
+if (uploadBtn) {
+  uploadBtn.addEventListener("click", async () => {
     if (!jwtToken) {
       alert("Connect wallet first");
       return;
@@ -397,59 +230,153 @@ if (doUpload) {
     }
     const file = fileInput.files[0];
     uploadStatus.textContent = "Getting Cloudflare URL...";
+
     const urlRes = await fetch("/api/cf/image-url", {
       method: "POST",
-      headers: { "Authorization": "Bearer " + jwtToken }
+      headers: { Authorization: "Bearer " + jwtToken }
     });
     const urlData = await urlRes.json();
-    if (!urlData.uploadURL) {
-      uploadStatus.textContent = "Cloudflare not configured";
+    if (!urlRes.ok) {
+      uploadStatus.textContent = "Error: " + (urlData.error || "unknown");
       return;
     }
-    const formData = new FormData();
-    formData.append("file", file);
+
+    const fd = new FormData();
+    fd.append("file", file);
+    uploadStatus.textContent = "Uploading to Cloudflare...";
     const upRes = await fetch(urlData.uploadURL, {
       method: "POST",
-      body: formData
+      body: fd
     });
     const upData = await upRes.json();
     if (!upData.success) {
-      uploadStatus.textContent = "Upload failed";
+      uploadStatus.textContent = "Upload failed: " + JSON.stringify(upData);
       return;
     }
-    let publicUrl;
-    if (cfDeliveryUrl) {
-      publicUrl = cfDeliveryUrl.replace(/\/$/, "") + "/" + upData.result.id + "/public";
+
+    // monta URL publica
+    const cfConfRes = await fetch("/api/cf/config");
+    const cfConf = await cfConfRes.json();
+    let publicUrl = "";
+    if (cfConf.configured) {
+      publicUrl = cfConf.deliveryUrl.replace(/\/+$/, "") + "/" + upData.result.id + "/public";
     } else if (upData.result.variants && upData.result.variants.length) {
       publicUrl = upData.result.variants[0];
     } else {
-      uploadStatus.textContent = "No public URL";
+      uploadStatus.textContent = "No public URL from CF";
       return;
     }
+
     uploadStatus.textContent = "Saving post...";
-    const save = await fetch("/api/posts", {
+    const saveRes = await fetch("/api/posts", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + jwtToken
+        Authorization: "Bearer " + jwtToken
       },
       body: JSON.stringify({
         media_url: publicUrl,
-        media_type: "image/jpeg",
+        media_type: file.type || "image",
         caption
       })
     });
-    if (save.ok) {
-      uploadStatus.textContent = "Done";
-      uploadModal.classList.add("hidden");
-      document.getElementById("caption").value = "";
-      fileInput.value = "";
-      loadFeed();
-    } else {
+    if (!saveRes.ok) {
       uploadStatus.textContent = "Error saving post";
+      return;
     }
+    uploadStatus.textContent = "Done";
+    fileInput.value = "";
+    document.getElementById("caption").value = "";
+    loadFeed();
   });
 }
 
+// avatar modal
+pfAvatarUpload.addEventListener("click", () => {
+  if (!jwtToken) {
+    alert("Connect wallet first");
+    return;
+  }
+  avatarModal.classList.remove("hidden");
+  avatarUploadStatus.textContent = "";
+  avatarFile.value = "";
+});
+
+avatarCancel.addEventListener("click", () => {
+  avatarModal.classList.add("hidden");
+});
+
+avatarSend.addEventListener("click", async () => {
+  if (!jwtToken) {
+    alert("Connect wallet first");
+    return;
+  }
+  if (!avatarFile.files.length) {
+    alert("Select file");
+    return;
+  }
+  const file = avatarFile.files[0];
+  avatarUploadStatus.textContent = "Requesting CF URL...";
+  const urlRes = await fetch("/api/cf/image-url", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + jwtToken }
+  });
+  const urlData = await urlRes.json();
+  if (!urlRes.ok) {
+    avatarUploadStatus.textContent = "Error: " + (urlData.error || "unknown");
+    return;
+  }
+
+  const fd = new FormData();
+  fd.append("file", file);
+  avatarUploadStatus.textContent = "Uploading avatar...";
+  const upRes = await fetch(urlData.uploadURL, {
+    method: "POST",
+    body: fd
+  });
+  const upData = await upRes.json();
+  if (!upData.success) {
+    avatarUploadStatus.textContent = "CF upload failed";
+    return;
+  }
+
+  const cfConfRes = await fetch("/api/cf/config");
+  const cfConf = await cfConfRes.json();
+  let avatarUrl = "";
+  if (cfConf.configured) {
+    avatarUrl = cfConf.deliveryUrl.replace(/\/+$/, "") + "/" + upData.result.id + "/avatar";
+  } else if (upData.result.variants && upData.result.variants.length) {
+    avatarUrl = upData.result.variants[0];
+  } else {
+    avatarUploadStatus.textContent = "No avatar URL";
+    return;
+  }
+
+  // salva no profile
+  const saveRes = await fetch("/api/me", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + jwtToken
+    },
+    body: JSON.stringify({
+      username: pfUsername.value,
+      bio: pfBio.value,
+      avatar_url: avatarUrl
+    })
+  });
+  if (!saveRes.ok) {
+    avatarUploadStatus.textContent = "Error saving profile";
+    return;
+  }
+  pfAvatarUrl.value = avatarUrl;
+  pfAvatarPreview.src = avatarUrl;
+  avatarUploadStatus.textContent = "Avatar updated";
+  loadFeed();
+  setTimeout(() => avatarModal.classList.add("hidden"), 600);
+});
+
+// init
+loadCfConfig();
 loadFeed();
 
