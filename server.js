@@ -4,6 +4,9 @@ import cors from "cors";
 import jwt from "jsonwebtoken";
 import { ethers } from "ethers";
 import { query, initDb } from "./db.js";
+// NOVAS IMPORTAÇÕES PARA UPLOAD
+import multer from "multer"; // Para lidar com multipart/form-data
+import { create as createW3SClient } from '@web3-storage/w3up';
 
 const app = express();
 
@@ -13,10 +16,28 @@ app.use(express.json());
 app.use(express.static("public"));
 
 const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret_key_2024";
+const W3S_TOKEN = process.env.W3S_TOKEN; // Nova variável de ambiente
 const PORT = process.env.PORT || 3000;
+
+// Configuração do Multer para armazenar o arquivo em memória
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Inicializar banco de dados
 await initDb();
+
+// Inicializar cliente W3S (necessário para autenticar a chave)
+let w3sClient;
+if (W3S_TOKEN) {
+    try {
+        console.log('Initializing w3up client...');
+        w3sClient = await createW3SClient();
+        await w3sClient.login(W3S_TOKEN); // Usar o token como email/identificador de login para simplificar
+        console.log('✓ w3up client initialized and authenticated');
+    } catch (error) {
+        console.error('✗ Failed to initialize w3up client:', error);
+    }
+}
+
 
 // ============ Middleware de Autenticação ============
 function authenticate(req, res, next) {
@@ -82,6 +103,39 @@ app.post("/api/auth", async (req, res) => {
   }
 });
 
+// ============ NOVA ROTA: Upload de Mídia para IPFS ============
+// POST /api/upload-media - Upload do arquivo binário para o W3S
+app.post("/api/upload-media", authenticate, upload.single('media'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "Nenhum arquivo enviado" });
+        }
+        
+        if (!w3sClient) {
+            throw new Error("Cliente W3S não inicializado. Verifique W3S_TOKEN.");
+        }
+
+        console.log(`📤 Upload de arquivo iniciado: ${req.file.originalname} (${req.file.size} bytes)`);
+
+        // Cria um objeto File para o W3S a partir do buffer
+        const file = new File([req.file.buffer], req.file.originalname, { type: req.file.mimetype });
+        
+        // Faz o upload e a fixação (pinning) no Filecoin/IPFS
+        const cid = await w3sClient.uploadFile(file);
+        
+        console.log(`✓ Upload W3S OK. CID: ${cid}`);
+
+        // Retorna o URL do Gateway para o frontend
+        const mediaUrl = `https://${cid}.ipfs.dweb.link/${req.file.originalname}`;
+
+        res.json({ success: true, media_url: mediaUrl });
+
+    } catch (error) {
+        console.error("❌ Erro ao fazer upload para W3S:", error);
+        res.status(500).json({ error: "Falha ao fazer upload para o IPFS/Filecoin" });
+    }
+});
+
 // ============ Rotas de Posts ============
 
 // GET /api/posts - Listar todos os posts
@@ -142,14 +196,14 @@ app.get("/api/posts/:id", async (req, res) => {
   }
 });
 
-// POST /api/posts - Criar novo post
+// POST /api/posts - Criar novo post (AGORA SÓ RECEBE A URL DO IPFS)
 app.post("/api/posts", authenticate, async (req, res) => {
   try {
     const { address } = req.user;
     const { media_url, caption } = req.body;
     
     console.log('📝 Criando post para:', address);
-    console.log('   Media URL:', media_url);
+    console.log('   Media URL (IPFS):', media_url);
     console.log('   Caption:', caption);
     
     if (!media_url) {
