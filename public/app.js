@@ -1,5 +1,4 @@
-// app.js alinhado com o index.html atual
-
+// app.js
 const API = '';
 
 const state = {
@@ -25,13 +24,11 @@ function loadSession() {
 }
 
 function setView(view) {
-  const views = document.querySelectorAll('.view');
-  views.forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const el = document.getElementById(`view-${view}`);
   if (el) el.classList.add('active');
 
-  const navs = document.querySelectorAll('.nav-item');
-  navs.forEach(n => {
+  document.querySelectorAll('.nav-item').forEach(n => {
     if (n.dataset.view === view) n.classList.add('active');
     else n.classList.remove('active');
   });
@@ -57,7 +54,7 @@ async function connectWallet() {
 }
 
 async function simpleAuth(address) {
-  const resp = await fetch(`${API}/api/auth/simple`, {
+  const resp = await fetch('/api/auth/simple', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ address })
@@ -86,28 +83,28 @@ function updateWalletUI() {
 }
 
 async function loadFeed() {
-  const container = document.getElementById('feed-posts');
-  if (!container) return;
-  container.innerHTML = '<p class="muted">Carregando...</p>';
+  const box = document.getElementById('feed-posts');
+  if (!box) return;
+  box.innerHTML = '<p class="muted">Carregando...</p>';
   try {
     const resp = await fetch('/api/posts');
     const ct = resp.headers.get('content-type') || '';
     if (!ct.includes('application/json')) {
       const txt = await resp.text();
-      console.error('/api/posts devolveu html:', txt.slice(0, 200));
-      container.innerHTML = '<p class="error">Erro ao carregar posts.</p>';
+      console.error('/api/posts html', txt.slice(0, 200));
+      box.innerHTML = '<p class="error">Erro ao carregar posts.</p>';
       return;
     }
     const posts = await resp.json();
     if (!Array.isArray(posts) || posts.length === 0) {
-      container.innerHTML = '<p class="muted">Nenhum post ainda</p>';
+      box.innerHTML = '<p class="muted">Nenhum post ainda</p>';
       return;
     }
-    container.innerHTML = '';
-    posts.forEach(p => container.appendChild(renderPost(p)));
+    box.innerHTML = '';
+    posts.forEach(p => box.appendChild(renderPost(p)));
   } catch (err) {
     console.error(err);
-    container.innerHTML = '<p class="error">Erro ao carregar posts.</p>';
+    box.innerHTML = '<p class="error">Erro ao carregar posts.</p>';
   }
 }
 
@@ -147,10 +144,9 @@ function renderPost(post) {
 }
 
 async function loadProfile() {
-  const box = document.getElementById('view-profile');
-  if (!box) return;
   if (!state.token) {
-    document.getElementById('profile-address-display').textContent = 'Conecte a wallet';
+    const el = document.getElementById('profile-address-display');
+    if (el) el.textContent = 'Conecte a wallet';
     return;
   }
   try {
@@ -158,11 +154,7 @@ async function loadProfile() {
       headers: { Authorization: `Bearer ${state.token}` }
     });
     const ct = resp.headers.get('content-type') || '';
-    if (!ct.includes('application/json')) {
-      const txt = await resp.text();
-      console.error('/api/profile/me html', txt.slice(0, 200));
-      return;
-    }
+    if (!ct.includes('application/json')) return;
     const data = await resp.json();
     const addrEl = document.getElementById('profile-address-display');
     const userEl = document.getElementById('profile-username-display');
@@ -187,20 +179,23 @@ function bindUpload() {
     selectBtn.addEventListener('click', () => fileInput.click());
   }
 
-  if (fileInput && preview) {
+  if (fileInput) {
     fileInput.addEventListener('change', () => {
       const f = fileInput.files[0];
       if (!f) {
-        preview.innerHTML = '';
+        if (preview) preview.innerHTML = '<p>Selecione uma imagem</p>';
+        if (uploadBtn) uploadBtn.disabled = true;
         return;
       }
       const url = URL.createObjectURL(f);
-      preview.innerHTML = `<img src="${url}" class="create-preview-img" />`;
+      if (preview) preview.innerHTML = `<img src="${url}" class="create-preview-img" />`;
+      if (uploadBtn) uploadBtn.disabled = false;
     });
   }
 
   if (uploadBtn) {
     uploadBtn.addEventListener('click', async () => {
+      if (uploadBtn.disabled) return;
       if (!state.token) {
         alert('conecte a wallet primeiro');
         return;
@@ -210,7 +205,10 @@ function bindUpload() {
         alert('selecione uma imagem');
         return;
       }
+
       status.textContent = 'Enviando...';
+      uploadBtn.disabled = true;
+
       try {
         const fd = new FormData();
         fd.append('media', f);
@@ -223,8 +221,10 @@ function bindUpload() {
         if (!up.ok || !upData.media_url) {
           console.error('upload falhou', upData);
           status.textContent = 'Falha no upload';
+          uploadBtn.disabled = false;
           return;
         }
+
         const caption = captionInput ? captionInput.value.trim() : '';
         const postResp = await fetch('/api/posts', {
           method: 'POST',
@@ -242,17 +242,20 @@ function bindUpload() {
         if (!postResp.ok) {
           console.error('post falhou', postData);
           status.textContent = 'Erro ao publicar';
+          uploadBtn.disabled = false;
           return;
         }
-        // reset
+
         if (fileInput) fileInput.value = '';
-        if (preview) preview.innerHTML = '';
         if (captionInput) captionInput.value = '';
+        if (preview) preview.innerHTML = '<p>Selecione uma imagem</p>';
         status.textContent = 'Publicado';
         setView('feed');
       } catch (err) {
         console.error(err);
         status.textContent = 'Erro';
+      } finally {
+        uploadBtn.disabled = false;
       }
     });
   }
