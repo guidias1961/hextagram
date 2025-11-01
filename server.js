@@ -12,7 +12,7 @@ app.use(express.static("public"));
 
 const JWT_SECRET = process.env.JWT_SECRET || "ermano";
 
-// middleware pra pegar o usuário do token
+// middleware
 function auth(req, res, next) {
   const h = req.headers.authorization;
   if (!h) return res.status(401).json({ error: "no auth" });
@@ -26,7 +26,29 @@ function auth(req, res, next) {
   }
 }
 
-// login com wallet
+// garante tabelas
+await query(`
+  CREATE TABLE IF NOT EXISTS users (
+    address text primary key,
+    username text,
+    bio text,
+    avatar_url text,
+    created_at timestamptz default now()
+  );
+`);
+await query(`
+  CREATE TABLE IF NOT EXISTS posts (
+    id serial primary key,
+    user_address text not null references users(address),
+    media_url text not null,
+    caption text,
+    cloud_provider text,
+    address text,
+    created_at timestamptz default now()
+  );
+`);
+
+// login wallet
 app.post("/api/auth", async (req, res) => {
   try {
     const { address, message, signature } = req.body;
@@ -35,7 +57,6 @@ app.post("/api/auth", async (req, res) => {
       return res.status(400).json({ error: "bad sig" });
     }
 
-    // garante que o user existe
     await query(
       `INSERT INTO users(address) VALUES($1)
        ON CONFLICT (address) DO NOTHING`,
@@ -50,22 +71,20 @@ app.post("/api/auth", async (req, res) => {
   }
 });
 
-// pegar feed
+// feed geral
 app.get("/api/posts", async (req, res) => {
   const r = await query(
     `SELECT p.id,
             p.media_url,
             p.caption,
-            p.cloud_provider,
             p.created_at,
-            p.address,
+            p.user_address as address,
             u.username,
-            u.bio,
             u.avatar_url
-     FROM posts p
-     LEFT JOIN users u ON u.address = p.address
-     ORDER BY p.created_at DESC
-     LIMIT 200`
+       FROM posts p
+       LEFT JOIN users u ON u.address = p.user_address
+       ORDER BY p.created_at DESC
+       LIMIT 200`
   );
   res.json(r.rows);
 });
@@ -80,35 +99,33 @@ app.post("/api/posts", auth, async (req, res) => {
       return res.status(400).json({ error: "media_url required" });
     }
 
-    // AQUI estava o problema: cada coluna tem seu parâmetro
-    await query(
+    const r = await query(
       `INSERT INTO posts
          (user_address, media_url, caption, cloud_provider, address)
        VALUES
-         ($1, $2, $3, $4, $5)`,
+         ($1, $2, $3, $4, $5)
+       RETURNING id, user_address as address, media_url, caption, created_at`,
       [address, media_url, caption || null, "cloudinary", address]
     );
 
-    res.json({ ok: true });
+    res.json(r.rows[0]);
   } catch (e) {
     console.error("create post error", e);
     res.status(500).json({ error: "create post error" });
   }
 });
 
-// pegar meu profile
+// meu perfil
 app.get("/api/profile/me", auth, async (req, res) => {
   const address = req.user.address;
-  const r = await query(
-    `SELECT address, username, bio, avatar_url
-       FROM users
-      WHERE address = $1`,
+  const u = await query(
+    `SELECT address, username, bio, avatar_url FROM users WHERE address = $1`,
     [address]
   );
-  res.json(r.rows[0] || { address });
+  res.json(u.rows[0] || { address });
 });
 
-// atualizar profile
+// atualizar perfil
 app.put("/api/profile", auth, async (req, res) => {
   const address = req.user.address;
   const { username, bio, avatar_url } = req.body;
