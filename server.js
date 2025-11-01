@@ -46,18 +46,20 @@ async function authMiddleware(req, res, next) {
   }
 }
 
+// login: gera nonce
 app.get("/api/auth/nonce/:address", async (req, res) => {
   const address = req.params.address.toLowerCase();
   const nonce = genNonce();
-  const sql = `
-    INSERT INTO users(address, nonce)
-    VALUES($1,$2)
-    ON CONFLICT(address) DO UPDATE SET nonce = EXCLUDED.nonce
-  `;
-  await query(sql, [address, nonce]);
+  await query(
+    `INSERT INTO users(address, nonce)
+     VALUES($1,$2)
+     ON CONFLICT(address) DO UPDATE SET nonce = EXCLUDED.nonce`,
+    [address, nonce]
+  );
   res.json({ nonce });
 });
 
+// login: verifica assinatura
 app.post("/api/auth/verify", async (req, res) => {
   const address = (req.body.address || "").toLowerCase();
   const signature = req.body.signature;
@@ -90,13 +92,54 @@ app.post("/api/auth/verify", async (req, res) => {
   res.json({ token });
 });
 
-// Cloudflare config
+// perfil do usuário logado
+app.get("/api/me", authMiddleware, async (req, res) => {
+  const address = req.user.address.toLowerCase();
+  const r = await query(
+    "SELECT address, username, bio, avatar_url FROM users WHERE address = $1",
+    [address]
+  );
+  res.json(r.rows[0]);
+});
+
+// atualizar perfil do logado
+app.post("/api/me", authMiddleware, async (req, res) => {
+  const address = req.user.address.toLowerCase();
+  const username = (req.body.username || "").trim();
+  const bio = (req.body.bio || "").trim();
+  const avatar_url = (req.body.avatar_url || "").trim();
+  const r = await query(
+    `UPDATE users
+     SET username = $2, bio = $3, avatar_url = $4
+     WHERE address = $1
+     RETURNING address, username, bio, avatar_url`,
+    [address, username, bio, avatar_url]
+  );
+  res.json(r.rows[0]);
+});
+
+// perfil público
+app.get("/api/profile/:address", async (req, res) => {
+  const address = req.params.address.toLowerCase();
+  const r = await query(
+    "SELECT address, username, bio, avatar_url FROM users WHERE address = $1",
+    [address]
+  );
+  if (r.rows.length === 0) {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  res.json(r.rows[0]);
+});
+
+// pegar config do Cloudflare
 app.get("/api/cf/config", (req, res) => {
   res.json({
     deliveryUrl: process.env.CF_IMAGES_DELIVERY_URL || ""
   });
 });
 
+// pedir upload URL no Cloudflare
 app.post("/api/cf/image-url", authMiddleware, async (req, res) => {
   const accountId = process.env.CF_ACCOUNT_ID;
   const apiToken = process.env.CF_API_TOKEN;
@@ -126,6 +169,7 @@ app.post("/api/cf/image-url", authMiddleware, async (req, res) => {
   });
 });
 
+// criar post
 app.post("/api/posts", authMiddleware, async (req, res) => {
   const media_url = req.body.media_url;
   const media_type = req.body.media_type;
@@ -134,21 +178,25 @@ app.post("/api/posts", authMiddleware, async (req, res) => {
     res.status(400).json({ error: "missing fields" });
     return;
   }
-  const user_address = req.user.address;
-  const sql = `
-    INSERT INTO posts(user_address, media_url, media_type, caption)
-    VALUES($1,$2,$3,$4)
-    RETURNING *
-  `;
-  const result = await query(sql, [user_address, media_url, media_type, caption]);
+  const user_address = req.user.address.toLowerCase();
+  const result = await query(
+    `INSERT INTO posts(user_address, media_url, media_type, caption)
+     VALUES($1,$2,$3,$4)
+     RETURNING *`,
+    [user_address, media_url, media_type, caption]
+  );
   res.json(result.rows[0]);
 });
 
+// feed
 app.get("/api/posts", async (req, res) => {
-  const sql = `
-    SELECT p.*,
+  const result = await query(`
+    SELECT
+      p.*,
       COALESCE(l.likes_count,0) AS likes_count,
-      COALESCE(c.comments_count,0) AS comments_count
+      COALESCE(c.comments_count,0) AS comments_count,
+      u.username,
+      u.avatar_url
     FROM posts p
     LEFT JOIN (
       SELECT post_id, COUNT(*) AS likes_count
@@ -160,16 +208,17 @@ app.get("/api/posts", async (req, res) => {
       FROM post_comments
       GROUP BY post_id
     ) c ON c.post_id = p.id
+    LEFT JOIN users u ON u.address = p.user_address
     ORDER BY p.created_at DESC
     LIMIT 100
-  `;
-  const result = await query(sql);
+  `);
   res.json(result.rows);
 });
 
+// like
 app.post("/api/posts/:id/like", authMiddleware, async (req, res) => {
   const postId = Number(req.params.id);
-  const user_address = req.user.address;
+  const user_address = req.user.address.toLowerCase();
   await query(
     "INSERT INTO post_likes(post_id, user_address) VALUES($1,$2) ON CONFLICT DO NOTHING",
     [postId, user_address]
@@ -177,9 +226,10 @@ app.post("/api/posts/:id/like", authMiddleware, async (req, res) => {
   res.json({ ok: true });
 });
 
+// comentar
 app.post("/api/posts/:id/comment", authMiddleware, async (req, res) => {
   const postId = Number(req.params.id);
-  const user_address = req.user.address;
+  const user_address = req.user.address.toLowerCase();
   const content = req.body.content;
   if (!content) {
     res.status(400).json({ error: "no content" });
@@ -192,6 +242,7 @@ app.post("/api/posts/:id/comment", authMiddleware, async (req, res) => {
   res.json(result.rows[0]);
 });
 
+// pegar comentários
 app.get("/api/posts/:id/comments", async (req, res) => {
   const postId = Number(req.params.id);
   const result = await query(
@@ -201,6 +252,7 @@ app.get("/api/posts/:id/comments", async (req, res) => {
   res.json(result.rows);
 });
 
+// SPA
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });

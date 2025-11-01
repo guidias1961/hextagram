@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <title>Hextagram PulseChain</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link href="https://fonts.cdnfonts.com/css/codec-pro" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -42,6 +41,19 @@
       <section id="profile" class="page">
         <h2>My profile</h2>
         <p id="profile-address"></p>
+
+        <div class="profile-edit">
+          <label>Username</label>
+          <input id="profile-username" placeholder="ex. pulse.degen" />
+          <label>Bio</label>
+          <textarea id="profile-bio" rows="3" placeholder="write about you"></textarea>
+          <label>Avatar URL</label>
+          <input id="profile-avatar" placeholder="https://..." />
+          <button id="profile-save">Save profile</button>
+          <div id="profile-save-status"></div>
+        </div>
+
+        <h3>My posts</h3>
         <div id="my-posts" class="grid"></div>
       </section>
     </main>

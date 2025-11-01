@@ -1,9 +1,9 @@
-// public/app.js
-
+// estado
 let jwtToken = null;
 let currentAddress = null;
 let cfDeliveryUrl = "";
 
+// elementos
 const feedEl = document.getElementById("feed-posts");
 const myPostsEl = document.getElementById("my-posts");
 const walletAddressEl = document.getElementById("wallet-address");
@@ -14,9 +14,13 @@ const btnConnect = document.getElementById("btn-connect");
 const cancelUpload = document.getElementById("cancel-upload");
 const doUpload = document.getElementById("do-upload");
 const uploadStatus = document.getElementById("upload-status");
+const profileUsernameEl = document.getElementById("profile-username");
+const profileBioEl = document.getElementById("profile-bio");
+const profileAvatarEl = document.getElementById("profile-avatar");
+const profileSaveBtn = document.getElementById("profile-save");
+const profileSaveStatus = document.getElementById("profile-save-status");
 
-console.log("Hextagram frontend loaded");
-
+// navegação
 document.querySelectorAll(".nav-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
@@ -30,21 +34,23 @@ document.querySelectorAll(".nav-btn").forEach(btn => {
   });
 });
 
+// abrir modal de upload
 btnUpload.addEventListener("click", () => {
   if (!jwtToken) {
-    alert("Connect the wallet first");
+    alert("Connect wallet first");
     return;
   }
   uploadModal.classList.remove("hidden");
 });
 
+// fechar modal
 cancelUpload.addEventListener("click", () => {
   uploadModal.classList.add("hidden");
   uploadStatus.textContent = "";
 });
 
+// connect wallet
 btnConnect.addEventListener("click", async () => {
-  console.log("Connect Wallet clicked");
   await connectWallet();
 });
 
@@ -57,16 +63,12 @@ async function connectWallet() {
     alert("Metamask not detected");
     return;
   }
-
   try {
-    // 1) pedir conta direto na metamask
     const accounts = await window.ethereum.request({
       method: "eth_requestAccounts"
     });
     const address = accounts[0];
-    console.log("Address", address);
 
-    // 2) garantir chain 369
     let chainId = await window.ethereum.request({ method: "eth_chainId" });
     if (chainId !== "0x171") {
       try {
@@ -85,17 +87,14 @@ async function connectWallet() {
     walletAddressEl.textContent = shortAddr(address);
     profileAddressEl.textContent = address;
 
-    // 3) pegar nonce no backend
     const nonceRes = await fetch(`/api/auth/nonce/${address}`);
     const { nonce } = await nonceRes.json();
 
-    // 4) assinar usando ethers mas só agora
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
     const message = `Hextagram login on PulseChain, nonce: ${nonce}`;
     const signature = await signer.signMessage(message);
 
-    // 5) verificar no backend
     const verifyRes = await fetch("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -104,12 +103,13 @@ async function connectWallet() {
     const data = await verifyRes.json();
     if (!data.token) {
       alert("Auth failed");
-      console.error("verify error", data);
+      console.error(data);
       return;
     }
 
     jwtToken = data.token;
     await loadCfConfig();
+    await loadMyProfile();
     await loadFeed();
   } catch (err) {
     console.error("connectWallet error", err);
@@ -122,6 +122,43 @@ async function loadCfConfig() {
   const d = await r.json();
   cfDeliveryUrl = (d.deliveryUrl || "").trim();
 }
+
+async function loadMyProfile() {
+  if (!jwtToken) return;
+  const r = await fetch("/api/me", {
+    headers: { Authorization: "Bearer " + jwtToken }
+  });
+  const d = await r.json();
+  profileUsernameEl.value = d.username || "";
+  profileBioEl.value = d.bio || "";
+  profileAvatarEl.value = d.avatar_url || "";
+}
+
+profileSaveBtn.addEventListener("click", async () => {
+  if (!jwtToken) {
+    alert("Connect wallet first");
+    return;
+  }
+  profileSaveStatus.textContent = "Saving...";
+  const r = await fetch("/api/me", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + jwtToken
+    },
+    body: JSON.stringify({
+      username: profileUsernameEl.value,
+      bio: profileBioEl.value,
+      avatar_url: profileAvatarEl.value
+    })
+  });
+  if (r.ok) {
+    profileSaveStatus.textContent = "Saved";
+    loadFeed();
+  } else {
+    profileSaveStatus.textContent = "Error";
+  }
+});
 
 async function loadFeed() {
   const res = await fetch("/api/posts");
@@ -136,9 +173,9 @@ function renderFeed(posts) {
     card.className = "post-card";
     card.innerHTML = `
       <div class="post-header">
-        <div class="post-user-avatar"></div>
+        <div class="post-user-avatar" style="${p.avatar_url ? `background-image:url('${p.avatar_url}');background-size:cover;background-position:center;` : ""}"></div>
         <div>
-          <div>${shortAddr(p.user_address)}</div>
+          <div>${p.username ? p.username : shortAddr(p.user_address)}</div>
           <small>${new Date(p.created_at).toLocaleString()}</small>
         </div>
       </div>
@@ -239,6 +276,7 @@ async function loadMyPosts() {
   });
 }
 
+// upload
 doUpload.addEventListener("click", async () => {
   if (!jwtToken) {
     alert("Connect wallet first");
@@ -313,6 +351,6 @@ doUpload.addEventListener("click", async () => {
   }
 });
 
-// carrega feed sem login
+// feed inicial sem login
 loadFeed();
 
