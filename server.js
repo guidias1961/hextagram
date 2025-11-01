@@ -1,261 +1,250 @@
-// ==================== server.js (Versão Final de Arquitetura) ====================
+// server.js
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import { ethers } from "ethers";
 import { query, initDb } from "./db.js";
-import multer from "multer"; 
-import { Web3Storage } from 'web3.storage';
+import multer from "multer";
+import { Web3Storage, File } from "web3.storage";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Definições Globais
+// envs
 const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret_key_2024";
-const W3S_TOKEN = process.env.W3S_TOKEN; 
+const W3S_TOKEN = process.env.W3S_TOKEN;
 const PORT = process.env.PORT || 3000;
 
-// Configuração do Multer (memória)
-const upload = multer({ storage: multer.memoryStorage() });
-
-// =========================================================
-// 1. MIDDLEWARES PRIMÁRIOS (DEVE FICAR NO TOPO)
-// =========================================================
+// middlewares
 app.use(cors());
 app.use(express.json());
 
-// SERVIR ARQUIVOS ESTÁTICOS (HTML, CSS, JS, IMAGES)
-app.use(express.static("public"));
+// estáticos
+app.use(express.static(path.join(__dirname, "public")));
 
-// =========================================================
-// 2. INICIALIZAÇÃO E CLIENTES ASSÍNCRONOS (Função main)
-// =========================================================
+// multer em memória
+const upload = multer({ storage: multer.memoryStorage() });
+
 let w3sClient = null;
 
-async function main() {
-    try {
-        // Inicializar banco de dados
-        await initDb();
-        
-        // Inicializar cliente W3S (só se o token existir)
-        if (W3S_TOKEN) {
-            console.log('Initializing Web3Storage client...');
-            w3sClient = new Web3Storage({ token: W3S_TOKEN });
-            console.log('✓ Web3Storage client initialized');
-        }
-    } catch (error) {
-        console.error('❌ Falha na Inicialização (DB/W3S). O servidor continuará rodando, mas funcionalidades podem falhar.', error);
-    }
-    
-    // Iniciar o servidor Express após a inicialização (Se não houver erro)
-    app.listen(PORT, () => {
-      console.log(`
-╔═══════════════════════════════════════╗
-║      🚀 HEXTAGRAM SERVER RUNNING      ║
-╠═══════════════════════════════════════╣
-║  Port: ${PORT.toString().padEnd(32)}║
-║  Environment: ${(process.env.NODE_ENV || 'development').padEnd(24)}║
-║  Database: Ready/Checked              ║
-╚═══════════════════════════════════════╝
-      `);
-    });
+async function bootstrap() {
+  await initDb();
+
+  if (W3S_TOKEN) {
+    w3sClient = new Web3Storage({ token: W3S_TOKEN });
+    console.log("✓ Web3Storage client pronto");
+  } else {
+    console.warn("W3S_TOKEN não definido, upload para IPFS vai falhar");
+  }
+
+  app.listen(PORT, () => {
+    console.log(`Hextagram rodando na porta ${PORT}`);
+  });
 }
 
-// ============ Middleware de Autenticação ============
+// auth middleware
 function authenticate(req, res, next) {
-  const authHeader = req.headers.authorization;
-  
-  if (!authHeader) {
-    return res.status(401).json({ error: "Authorization header missing" });
-  }
-  
-  const token = authHeader.split(" ")[1];
-  
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ error: "missing auth header" });
+
+  const token = auth.split(" ")[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
-  } catch (error) {
-    return res.status(401).json({ error: "Invalid or expired token" });
+  } catch (err) {
+    return res.status(401).json({ error: "invalid token" });
   }
 }
 
-// ============ Rotas de Autenticação e API (Rotas de Usuário) ============
-// POST /api/auth - Login com assinatura Web3
+// auth web3
 app.post("/api/auth", async (req, res) => {
   try {
-    // ... (Lógica de autenticação)
     const { address, message, signature } = req.body;
-    
+
     if (!address || !message || !signature) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({ error: "missing fields" });
     }
-    
-    const recoveredAddress = ethers.verifyMessage(message, signature);
-    
-    if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
-      return res.status(401).json({ error: "Invalid signature" });
+
+    const recovered = ethers.verifyMessage(message, signature);
+    if (recovered.toLowerCase() !== address.toLowerCase()) {
+      return res.status(401).json({ error: "invalid signature" });
     }
-    
+
     await query(
-      `INSERT INTO users (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`,
+      `INSERT INTO users (address) VALUES ($1::text) ON CONFLICT (address) DO NOTHING`,
       [address.toLowerCase()]
     );
-    
-    const token = jwt.sign({ address: address.toLowerCase() }, JWT_SECRET, { expiresIn: "7d" });
-    
-    res.json({
-      success: true,
-      token,
-      address: address.toLowerCase()
-    });
-    
-  } catch (error) {
-    console.error("Auth error:", error);
-    res.status(500).json({ error: "Authentication failed" });
+
+    const token = jwt.sign(
+      { address: address.toLowerCase() },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({ success: true, token, address: address.toLowerCase() });
+  } catch (err) {
+    console.error("auth error:", err);
+    res.status(500).json({ error: "auth failed" });
   }
 });
 
-// ============ NOVA ROTA: Upload de Mídia para IPFS ============
-app.post("/api/upload-media", authenticate, upload.single('media'), async (req, res) => {
+// upload IPFS
+app.post(
+  "/api/upload-media",
+  authenticate,
+  upload.single("media"),
+  async (req, res) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({ error: "Nenhum arquivo enviado" });
-        }
-        
-        if (!w3sClient) {
-            return res.status(500).json({ error: "Cliente Web3Storage não inicializado. Verifique W3S_TOKEN." });
-        }
+      if (!req.file) {
+        return res.status(400).json({ error: "no file" });
+      }
+      if (!w3sClient) {
+        return res.status(500).json({ error: "web3.storage client not ready" });
+      }
 
-        console.log(`📤 Upload de arquivo iniciado: ${req.file.originalname} (${req.file.size} bytes)`);
-        const files = [new File([req.file.buffer], req.file.originalname, { type: req.file.mimetype })];
-        const cid = await w3sClient.put(files);
-        
-        console.log(`✓ Upload W3S OK. CID: ${cid}`);
+      const file = new File(
+        [req.file.buffer],
+        req.file.originalname,
+        { type: req.file.mimetype }
+      );
 
-        const mediaUrl = `https://${cid}.ipfs.dweb.link/${req.file.originalname}`;
+      const cid = await w3sClient.put([file], { wrapWithDirectory: false });
+      const mediaUrl = `https://${cid}.ipfs.dweb.link`;
 
-        res.json({ success: true, media_url: mediaUrl });
-
-    } catch (error) {
-        console.error("❌ Erro ao fazer upload para W3S:", error);
-        res.status(500).json({ error: "Falha ao fazer upload para o IPFS/Filecoin" });
+      return res.json({ success: true, media_url: mediaUrl });
+    } catch (err) {
+      console.error("upload error:", err);
+      return res.status(500).json({ error: "ipfs upload failed" });
     }
-});
+  }
+);
 
-
-// ============ Rotas de Posts (GET, POST, DELETE) ============
-// GET /api/posts - Listar todos os posts
+// listar posts
 app.get("/api/posts", async (req, res) => {
   try {
     const result = await query(
-      `SELECT p.id, p.user_address as address, p.media_url, p.caption, p.created_at, u.username, u.avatar_url
-       FROM posts p LEFT JOIN users u ON u.address = p.user_address
-       ORDER BY p.created_at DESC LIMIT 100`
+      `SELECT p.id,
+              p.user_address AS address,
+              p.media_url,
+              p.caption,
+              p.created_at,
+              u.username,
+              u.avatar_url
+       FROM posts p
+       LEFT JOIN users u ON u.address = p.user_address
+       ORDER BY p.created_at DESC
+       LIMIT 200`
     );
     res.json(result.rows);
-  } catch (error) {
-    console.error("Get posts error:", error);
-    res.status(500).json({ error: "Failed to fetch posts" });
+  } catch (err) {
+    console.error("get posts:", err);
+    res.status(500).json({ error: "failed to fetch posts" });
   }
 });
 
-// POST /api/posts - Criar novo post 
+// criar post
 app.post("/api/posts", authenticate, async (req, res) => {
   try {
     const { address } = req.user;
     const { media_url, caption } = req.body;
-    
+
     if (!media_url) {
       return res.status(400).json({ error: "media_url is required" });
     }
-    
+
     const result = await query(
       `INSERT INTO posts (user_address, media_url, caption)
-       VALUES ($1, $2, $3)
-       RETURNING id, user_address as address, media_url, caption, created_at`,
+       VALUES ($1::text, $2::text, $3::text)
+       RETURNING id, user_address AS address, media_url, caption, created_at`,
       [address, media_url, caption || null]
     );
-    
+
     res.status(201).json(result.rows[0]);
-    
-  } catch (error) {
-    console.error("❌ Erro ao criar post:", error);
-    res.status(500).json({ error: "Failed to create post", details: error.message });
+  } catch (err) {
+    console.error("create post error:", err);
+    res.status(500).json({ error: "failed to create post" });
   }
 });
 
-// DELETE /api/posts/:id - Deletar post (apenas o dono)
+// deletar post
 app.delete("/api/posts/:id", authenticate, async (req, res) => {
-    // ... (Lógica de exclusão)
   try {
     const { address } = req.user;
     const { id } = req.params;
-    
-    const checkResult = await query(`SELECT user_address FROM posts WHERE id = $1`, [id]);
-    
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({ error: "Post not found" });
+
+    const check = await query(
+      `SELECT user_address FROM posts WHERE id = $1::int`,
+      [id]
+    );
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: "not found" });
     }
-    
-    if (checkResult.rows[0].user_address !== address) {
-      return res.status(403).json({ error: "Unauthorized" });
+    if (check.rows[0].user_address !== address) {
+      return res.status(403).json({ error: "not allowed" });
     }
-    
-    await query(`DELETE FROM posts WHERE id = $1`, [id]);
-    
-    res.json({ success: true, message: "Post deleted" });
-    
-  } catch (error) {
-    console.error("Delete post error:", error);
-    res.status(500).json({ error: "Failed to delete post" });
+
+    await query(`DELETE FROM posts WHERE id = $1::int`, [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("delete:", err);
+    res.status(500).json({ error: "failed to delete" });
   }
 });
 
-// ============ Rotas de Perfil (GET, PUT) ============
-// GET /api/profile/me - Buscar perfil do usuário autenticado
+// perfil
 app.get("/api/profile/me", authenticate, async (req, res) => {
-    // ... (Lógica de perfil)
   try {
     const { address } = req.user;
     const result = await query(
-      `SELECT address, username, bio, avatar_url, created_at FROM users WHERE address = $1`, [address]
+      `SELECT address, username, bio, avatar_url, created_at
+       FROM users WHERE address = $1::text`,
+      [address]
     );
-    
     if (result.rows.length === 0) {
       return res.json({ address });
     }
-    res.json(result.rows[0]);
-    
-  } catch (error) {
-    console.error("Get profile error:", error);
-    res.status(500).json({ error: "Failed to fetch profile" });
+    return res.json(result.rows[0]);
+  } catch (err) {
+    console.error("profile:", err);
+    res.status(500).json({ error: "failed to fetch profile" });
   }
 });
 
-// PUT /api/profile - Atualizar perfil
 app.put("/api/profile", authenticate, async (req, res) => {
-    // ... (Lógica de atualização)
   try {
     const { address } = req.user;
     const { username, bio, avatar_url } = req.body;
-    
+
     await query(
-      `UPDATE users SET username = $1, bio = $2, avatar_url = $3 WHERE address = $4`,
+      `UPDATE users
+       SET username = $1::text,
+           bio = $2::text,
+           avatar_url = $3::text
+       WHERE address = $4::text`,
       [username || null, bio || null, avatar_url || null, address]
     );
-    
-    res.json({ ok: true, message: "Profile updated" });
-    
-  } catch (error) {
-    console.error("Update profile error:", error);
-    res.status(500).json({ error: "Failed to update profile" });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("update profile:", err);
+    res.status(500).json({ error: "failed to update profile" });
   }
 });
 
-// Rota de Health Check
+// health
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Executa a função principal para iniciar o servidor
-main();
+// fallback para SPA
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+bootstrap();
+

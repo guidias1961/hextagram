@@ -1,223 +1,137 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hextagram - Web3 Instagram</title>
-  <link rel="stylesheet" href="/style.css?v=2">
-</head>
-<body>
-  <div class="app">
-    <aside class="sidebar">
-      <div class="logo">
-        <div class="logo-icon">H</div>
-        <h1 class="logo-text">Hextagram</h1>
-      </div>
-      
-      <nav class="nav">
-        <button class="nav-item active" data-view="feed">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-          </svg>
-          <span>Feed</span>
-        </button>
-        
-        <button class="nav-item" data-view="explore">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"></circle>
-            <path d="m21 21-4.35-4.35"></path>
-          </svg>
-          <span>Explorar</span>
-        </button>
-        
-        <button class="nav-item" data-view="upload">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            <circle cx="8.5" cy="8.5" r="1.5"></circle>
-            <polyline points="21 15 16 10 5 21"></polyline>
-          </svg>
-          <span>Criar</span>
-        </button>
-        
-        <button class="nav-item" data-view="profile">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-            <circle cx="12" cy="7" r="4"></circle>
-          </svg>
-          <span>Perfil</span>
-        </button>
-      </nav>
-      
-      <div class="wallet-section">
-        <div class="wallet-info">
-          <span class="chain-badge">PulseChain</span>
-          <span class="wallet-address" id="wallet-address">Not connected</span>
-        </div>
-        <button class="btn-connect" id="connect-wallet">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
-            <line x1="1" y1="10" x2="23" y2="10"></line>
-          </svg>
-          Connect Wallet
-        </button>
-      </div>
-    </aside>
-
-    <main class="main-content">
-      <section class="view active" id="view-feed">
-        <div class="stories-container">
-          <div class="story">
-            <div class="story-avatar gradient-border">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=1" alt="Story">
-            </div>
-            <span class="story-name">Your Story</span>
-          </div>
-          <div class="story">
-            <div class="story-avatar gradient-border">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=2" alt="Story">
-            </div>
-            <span class="story-name">pulse.dev</span>
-          </div>
-          <div class="story">
-            <div class="story-avatar gradient-border">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=3" alt="Story">
-            </div>
-            <span class="story-name">hex.trader</span>
-          </div>
-          <div class="story">
-            <div class="story-avatar gradient-border">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=4" alt="Story">
-            </div>
-            <span class="story-name">pls.whale</span>
-          </div>
-          <div class="story">
-            <div class="story-avatar gradient-border">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=5" alt="Story">
-            </div>
-            <span class="story-name">crypto.art</span>
-          </div>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hextagram</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/style.css?v=3" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="logo">
+          <div class="logo-icon">H</div>
+          <div class="logo-text">Hextagram</div>
         </div>
 
-        <div class="posts-container" id="feed-posts">
-          <div class="loading">Carregando posts...</div>
-        </div>
-      </section>
+        <nav class="nav">
+          <button class="nav-item active" data-view="feed">
+            <span>Feed</span>
+          </button>
+          <button class="nav-item" data-view="explore">
+            <span>Explorar</span>
+          </button>
+          <button class="nav-item" data-view="upload">
+            <span>Criar</span>
+          </button>
+          <button class="nav-item" data-view="profile">
+            <span>Perfil</span>
+          </button>
+        </nav>
 
-      <section class="view" id="view-explore">
-        <div class="explore-grid">
+        <div class="wallet-section">
+          <div class="wallet-info">
+            <span class="chain-badge">PulseChain</span>
+            <span class="wallet-address" id="wallet-address">Não conectado</span>
+          </div>
+          <button class="btn-connect" id="connect-wallet">
+            Conectar wallet
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <section class="view active" id="view-feed">
+          <div class="stories-container" id="stories">
+            <div class="story">
+              <div class="story-avatar gradient-border">
+                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=you" alt="story" />
+              </div>
+              <span class="story-name">Seu story</span>
+            </div>
+          </div>
+          <div id="feed-posts" class="posts-container">
+            <div class="loading">Carregando feed...</div>
+          </div>
+        </section>
+
+        <section class="view" id="view-explore">
           <h2 class="section-title">Explorar</h2>
-          <div class="grid" id="explore-grid">
+          <div class="explore-grid" id="explore-grid">
             <div class="loading">Carregando...</div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section class="view" id="view-upload">
-        <div class="upload-container">
-          <div class="upload-card">
-            <h2>Criar novo post</h2>
-            
-            <div class="upload-preview" id="upload-preview">
-              <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                <polyline points="21 15 16 10 5 21"></polyline>
-              </svg>
-              <p>Selecione uma imagem</p>
-            </div>
-            
-            <input type="file" id="file-input" accept="image/*" style="display: none;">
-            <button class="btn-primary" id="select-file">Escolher imagem</button>
-            
-            <textarea id="caption-input" placeholder="Escreva uma legenda..." rows="3"></textarea>
-            
-            <button class="btn-primary" id="upload-btn" disabled>
-              <span id="upload-text">Publicar</span>
-            </button>
-            
-            <div class="upload-status" id="upload-status"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="view" id="view-profile">
-        <div class="profile-container">
-          <div class="profile-header">
-            <div class="profile-avatar-large">
-              <img id="profile-avatar-img" src="https://api.dicebear.com/7.x/avataaars/svg?seed=user" alt="Avatar">
-            </div>
-            <div class="profile-info">
-              <div class="profile-username-row">
-                <h2 id="profile-username-display">username</h2>
-                <button class="btn-secondary" id="edit-profile-btn">Editar perfil</button>
+        <section class="view" id="view-upload">
+          <div class="upload-container">
+            <div class="upload-card">
+              <h2>Novo post</h2>
+              <div class="upload-preview" id="upload-preview">
+                <p>Selecione uma imagem</p>
               </div>
-              <div class="profile-stats">
-                <div class="stat">
-                  <strong id="posts-count">0</strong>
-                  <span>posts</span>
-                </div>
-                <div class="stat">
-                  <strong>0</strong>
-                  <span>seguidores</span>
-                </div>
-                <div class="stat">
-                  <strong>0</strong>
-                  <span>seguindo</span>
-                </div>
+              <input type="file" id="file-input" accept="image/*" hidden />
+              <button class="btn-secondary" id="select-file">Escolher imagem</button>
+              <textarea id="caption-input" rows="3" placeholder="Legenda opcional"></textarea>
+              <button class="btn-primary" id="upload-btn" disabled>
+                <span id="upload-text">Publicar</span>
+              </button>
+              <div class="upload-status" id="upload-status"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-profile">
+          <div class="profile-container">
+            <div class="profile-header">
+              <div class="profile-avatar-large">
+                <img id="profile-avatar-img" src="https://api.dicebear.com/7.x/avataaars/svg?seed=user" alt="avatar" />
               </div>
-              <div class="profile-bio" id="profile-bio-display"></div>
-              <div class="profile-address-display" id="profile-address-display"></div>
+              <div class="profile-info">
+                <div class="profile-username-row">
+                  <h2 id="profile-username-display">username</h2>
+                  <button class="btn-secondary" id="edit-profile-btn">Editar perfil</button>
+                </div>
+                <div class="profile-stats">
+                  <div><strong id="posts-count">0</strong> posts</div>
+                  <div><strong>0</strong> seguidores</div>
+                  <div><strong>0</strong> seguindo</div>
+                </div>
+                <p class="profile-bio" id="profile-bio-display"></p>
+                <p class="profile-address-display" id="profile-address-display"></p>
+              </div>
+            </div>
+
+            <div class="profile-grid" id="user-posts">
+              <div class="loading">Carregando...</div>
             </div>
           </div>
 
-          <div class="profile-tabs">
-            <button class="tab active">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="3" y="3" width="7" height="7"></rect>
-                <rect x="14" y="3" width="7" height="7"></rect>
-                <rect x="14" y="14" width="7" height="7"></rect>
-                <rect x="3" y="14" width="7" height="7"></rect>
-              </svg>
-              POSTS
-            </button>
-          </div>
-
-          <div class="profile-grid" id="user-posts">
-            <div class="loading">Carregando seus posts...</div>
-          </div>
-        </div>
-
-        <div class="modal" id="edit-profile-modal">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h3>Editar perfil</h3>
-              <button class="modal-close" id="close-modal">&times;</button>
-            </div>
-            <div class="modal-body">
-              <div class="form-group">
+          <div class="modal" id="edit-profile-modal">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h3>Editar perfil</h3>
+                <button class="modal-close" id="close-modal">&times;</button>
+              </div>
+              <div class="modal-body">
                 <label>Username</label>
-                <input type="text" id="edit-username" placeholder="seu_username">
-              </div>
-              <div class="form-group">
+                <input id="edit-username" type="text" />
                 <label>Bio</label>
-                <textarea id="edit-bio" rows="3" placeholder="Conte um pouco sobre você..."></textarea>
-              </div>
-              <div class="form-group">
+                <textarea id="edit-bio" rows="3"></textarea>
                 <label>Avatar URL</label>
-                <input type="text" id="edit-avatar" placeholder="https://...">
+                <input id="edit-avatar" type="text" />
               </div>
-            </div>
-            <div class="modal-footer">
-              <button class="btn-secondary" id="cancel-edit">Cancelar</button>
-              <button class="btn-primary" id="save-profile">Salvar</button>
+              <div class="modal-footer">
+                <button class="btn-secondary" id="cancel-edit">Cancelar</button>
+                <button class="btn-primary" id="save-profile">Salvar</button>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
-    </main>
-  </div>
+        </section>
+      </main>
+    </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.min.js"></script>
-  <script src="/app.js"></script>
-</body>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.min.js"></script>
+    <script src="/app.js?v=3"></script>
+  </body>
 </html>
+
