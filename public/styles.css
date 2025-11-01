@@ -1,232 +1,601 @@
+/* ==================== public/style.css ==================== */
 
-// ==================== public/index.html ====================
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hextagram - Web3 Instagram</title>
-  <link rel="stylesheet" href="/style.css">
-</head>
-<body>
-  <div class="app">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="logo">
-        <div class="logo-icon">H</div>
-        <h1 class="logo-text">Hextagram</h1>
-      </div>
-      
-      <nav class="nav">
-        <button class="nav-item active" data-view="feed">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-          </svg>
-          <span>Feed</span>
-        </button>
-        
-        <button class="nav-item" data-view="explore">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"></circle>
-            <path d="m21 21-4.35-4.35"></path>
-          </svg>
-          <span>Explorar</span>
-        </button>
-        
-        <button class="nav-item" data-view="upload">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            <circle cx="8.5" cy="8.5" r="1.5"></circle>
-            <polyline points="21 15 16 10 5 21"></polyline>
-          </svg>
-          <span>Criar</span>
-        </button>
-        
-        <button class="nav-item" data-view="profile">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-            <circle cx="12" cy="7" r="4"></circle>
-          </svg>
-          <span>Perfil</span>
-        </button>
-      </nav>
-      
-      <div class="wallet-section">
-        <div class="wallet-info">
-          <span class="chain-badge">PulseChain</span>
-          <span class="wallet-address" id="wallet-address">Not connected</span>
-        </div>
-        <button class="btn-connect" id="connect-wallet">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
-            <line x1="1" y1="10" x2="23" y2="10"></line>
-          </svg>
-          Connect Wallet
-        </button>
-      </div>
-    </aside>
+/* Reset básico (opcional, mas recomendado) */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
 
-    <!-- Main Content -->
-    <main class="main-content">
-      <!-- Feed View -->
-      <section class="view active" id="view-feed">
-        <div class="stories-container">
-          <div class="story">
-            <div class="story-avatar gradient-border">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=1" alt="Story">
-            </div>
-            <span class="story-name">Your Story</span>
-          </div>
-          <div class="story">
-            <div class="story-avatar gradient-border">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=2" alt="Story">
-            </div>
-            <span class="story-name">pulse.dev</span>
-          </div>
-          <div class="story">
-            <div class="story-avatar gradient-border">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=3" alt="Story">
-            </div>
-            <span class="story-name">hex.trader</span>
-          </div>
-          <div class="story">
-            <div class="story-avatar gradient-border">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=4" alt="Story">
-            </div>
-            <span class="story-name">pls.whale</span>
-          </div>
-          <div class="story">
-            <div class="story-avatar gradient-border">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=5" alt="Story">
-            </div>
-            <span class="story-name">crypto.art</span>
-          </div>
-        </div>
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: #000; 
+    color: #f0f0f0; 
+}
 
-        <div class="posts-container" id="feed-posts">
-          <div class="loading">Carregando posts...</div>
-        </div>
-      </section>
+/* ================================================= */
+/* 1. LAYOUT PRINCIPAL: Sidebar e Centralização */
+/* ================================================= */
+.app {
+    display: flex;
+    min-height: 100vh;
+}
 
-      <!-- Explore View -->
-      <section class="view" id="view-explore">
-        <div class="explore-grid">
-          <h2 class="section-title">Explorar</h2>
-          <div class="grid" id="explore-grid">
-            <div class="loading">Carregando...</div>
-          </div>
-        </div>
-      </section>
+.sidebar {
+    width: 240px;
+    padding: 20px 15px;
+    background-color: #000;
+    border-right: 1px solid #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+}
 
-      <!-- Upload View -->
-      <section class="view" id="view-upload">
-        <div class="upload-container">
-          <div class="upload-card">
-            <h2>Criar novo post</h2>
-            
-            <div class="upload-preview" id="upload-preview">
-              <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                <polyline points="21 15 16 10 5 21"></polyline>
-              </svg>
-              <p>Selecione uma imagem</p>
-            </div>
-            
-            <input type="file" id="file-input" accept="image/*" style="display: none;">
-            <button class="btn-primary" id="select-file">Escolher imagem</button>
-            
-            <textarea id="caption-input" placeholder="Escreva uma legenda..." rows="3"></textarea>
-            
-            <button class="btn-primary" id="upload-btn" disabled>
-              <span id="upload-text">Publicar</span>
-            </button>
-            
-            <div class="upload-status" id="upload-status"></div>
-          </div>
-        </div>
-      </section>
+.logo {
+    display: flex;
+    align-items: center;
+    margin-bottom: 30px;
+}
 
-      <!-- Profile View -->
-      <section class="view" id="view-profile">
-        <div class="profile-container">
-          <div class="profile-header">
-            <div class="profile-avatar-large">
-              <img id="profile-avatar-img" src="https://api.dicebear.com/7.x/avataaars/svg?seed=user" alt="Avatar">
-            </div>
-            <div class="profile-info">
-              <div class="profile-username-row">
-                <h2 id="profile-username-display">username</h2>
-                <button class="btn-secondary" id="edit-profile-btn">Editar perfil</button>
-              </div>
-              <div class="profile-stats">
-                <div class="stat">
-                  <strong id="posts-count">0</strong>
-                  <span>posts</span>
-                </div>
-                <div class="stat">
-                  <strong>0</strong>
-                  <span>seguidores</span>
-                </div>
-                <div class="stat">
-                  <strong>0</strong>
-                  <span>seguindo</span>
-                </div>
-              </div>
-              <div class="profile-bio" id="profile-bio-display"></div>
-              <div class="profile-address-display" id="profile-address-display"></div>
-            </div>
-          </div>
+.logo-icon {
+    font-size: 24px;
+    font-weight: bold;
+    margin-right: 10px;
+    color: #fff;
+}
 
-          <div class="profile-tabs">
-            <button class="tab active">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="3" y="3" width="7" height="7"></rect>
-                <rect x="14" y="3" width="7" height="7"></rect>
-                <rect x="14" y="14" width="7" height="7"></rect>
-                <rect x="3" y="14" width="7" height="7"></rect>
-              </svg>
-              POSTS
-            </button>
-          </div>
+.logo-text {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
 
-          <div class="profile-grid" id="user-posts">
-            <div class="loading">Carregando seus posts...</div>
-          </div>
-        </div>
+.nav {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
 
-        <!-- Edit Profile Modal -->
-        <div class="modal" id="edit-profile-modal">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h3>Editar perfil</h3>
-              <button class="modal-close" id="close-modal">&times;</button>
-            </div>
-            <div class="modal-body">
-              <div class="form-group">
-                <label>Username</label>
-                <input type="text" id="edit-username" placeholder="seu_username">
-              </div>
-              <div class="form-group">
-                <label>Bio</label>
-                <textarea id="edit-bio" rows="3" placeholder="Conte um pouco sobre você..."></textarea>
-              </div>
-              <div class="form-group">
-                <label>Avatar URL</label>
-                <input type="text" id="edit-avatar" placeholder="https://...">
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button class="btn-secondary" id="cancel-edit">Cancelar</button>
-              <button class="btn-primary" id="save-profile">Salvar</button>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
-  </div>
+.nav-item {
+    background: none;
+    border: none;
+    color: #f0f0f0;
+    padding: 12px;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    font-size: 1rem;
+}
 
-  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.min.js"></script>
-  <script src="/app.js"></script>
-</body>
-</html>
+.nav-item:hover {
+    background-color: #1a1a1a;
+}
+
+.nav-item.active {
+    font-weight: bold;
+    color: #fff;
+    background-color: #1a1a1a;
+}
+
+/* Wallet Section */
+.wallet-section {
+    margin-top: auto;
+    padding-top: 15px;
+    border-top: 1px solid #1a1a1a;
+}
+
+.wallet-info {
+    font-size: 0.8rem;
+    margin-bottom: 10px;
+}
+
+.chain-badge {
+    background-color: #9258ff; /* Cor do PulseChain/HEX */
+    color: #000;
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+.btn-connect {
+    width: 100%;
+    background-color: #4a5568;
+    color: white;
+    padding: 10px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    transition: background-color 0.2s;
+}
+
+.btn-connect:hover {
+    background-color: #2d3748;
+}
+
+/* ================================================= */
+/* 4. MAIN CONTENT (Views) */
+/* ================================================= */
+.main-content {
+    flex-grow: 1;
+    display: flex;
+    justify-content: center; /* Centraliza o feed */
+    padding: 20px;
+}
+
+.view {
+    display: none;
+    width: 100%;
+}
+
+.view.active {
+    display: block;
+}
+
+.loading {
+    color: #999;
+    text-align: center;
+    padding: 20px;
+}
+
+/* ================================================= */
+/* 5. FEED VIEW */
+/* ================================================= */
+#view-feed {
+    max-width: 600px;
+}
+
+.stories-container {
+    display: flex;
+    gap: 10px;
+    padding: 15px 0;
+    overflow-x: auto;
+    border-bottom: 1px solid #1a1a1a;
+    margin-bottom: 20px;
+}
+
+.story {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 65px;
+}
+
+.story-avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    padding: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+    overflow: hidden;
+}
+
+.story-avatar img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid #000; /* Borda interna para contraste */
+}
+
+/* Efeito de borda gradiente (simulação de história não vista) */
+.gradient-border {
+    background: linear-gradient(45deg, #ff8a00, #e90089);
+}
+
+.story-name {
+    font-size: 0.75rem;
+    color: #f0f0f0;
+    max-width: 65px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* --- Post --- */
+.post {
+    background-color: #000; /* Fundo preto total para contraste */
+    border: 1px solid #1a1a1a;
+    border-radius: 0; /* No Instagram é mais retangular */
+    margin-bottom: 25px;
+    width: 100%;
+}
+
+.post-header {
+    display: flex;
+    align-items: center;
+    padding: 10px 15px;
+}
+
+.post-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    margin-right: 10px;
+    object-fit: cover;
+}
+
+.post-username {
+    font-weight: bold;
+}
+
+.post-image {
+    width: 100%;
+    aspect-ratio: 1 / 1; 
+    object-fit: cover;
+}
+
+.post-actions {
+    padding: 5px 15px;
+    display: flex;
+    gap: 10px;
+}
+
+.action-btn {
+    background: none;
+    border: none;
+    color: #f0f0f0;
+    cursor: pointer;
+    padding: 5px;
+}
+
+.like-btn.liked svg {
+    fill: #ff3040; 
+    stroke: #ff3040;
+}
+
+.post-likes,
+.post-caption,
+.post-timestamp {
+    padding: 0 15px;
+    font-size: 0.875rem;
+}
+
+.post-caption {
+    margin: 5px 0 8px 0;
+}
+
+.post-timestamp {
+    color: #999;
+    padding-bottom: 10px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+}
+
+.add-comment {
+    border-top: 1px solid #1a1a1a;
+    padding: 10px 15px;
+    display: flex;
+}
+
+.add-comment input {
+    flex-grow: 1;
+    background: none;
+    border: none;
+    color: #f0f0f0;
+    padding: 5px 0;
+}
+
+.add-comment input:focus {
+    outline: none;
+}
+
+.add-comment button {
+    background: none;
+    border: none;
+    color: #9258ff; /* Cor de destaque */
+    font-weight: bold;
+    cursor: pointer;
+}
+
+/* ================================================= */
+/* 6. EXPLORE VIEW */
+/* ================================================= */
+.explore-grid {
+    width: 100%;
+    max-width: 935px; /* Largura comum para grids de social media */
+}
+
+.explore-grid .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+    margin-top: 20px;
+}
+
+.grid-item {
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.grid-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* ================================================= */
+/* 7. UPLOAD VIEW */
+/* ================================================= */
+.upload-container {
+    width: 100%;
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+.upload-card {
+    background-color: #1a1a1a;
+    padding: 30px;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.upload-card h2 {
+    margin-bottom: 20px;
+}
+
+.upload-preview {
+    background-color: #000;
+    border: 2px dashed #444;
+    border-radius: 8px;
+    padding: 30px;
+    margin-bottom: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+}
+
+.upload-preview svg {
+    color: #888;
+}
+
+.upload-preview img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.btn-primary, .btn-secondary {
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: opacity 0.2s;
+}
+
+.btn-primary {
+    background-color: #9258ff;
+    color: white;
+    border: none;
+    width: 100%;
+    margin-top: 15px;
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+textarea {
+    width: 100%;
+    padding: 10px;
+    margin-top: 15px;
+    border-radius: 4px;
+    border: 1px solid #333;
+    background-color: #222;
+    color: #f0f0f0;
+}
+
+.upload-status {
+    margin-top: 15px;
+    font-weight: bold;
+}
+
+
+/* ================================================= */
+/* 8. PROFILE VIEW */
+/* ================================================= */
+.profile-container {
+    width: 100%;
+    max-width: 935px;
+}
+
+.profile-header {
+    display: flex;
+    gap: 50px;
+    padding: 40px 0;
+    border-bottom: 1px solid #1a1a1a;
+}
+
+.profile-avatar-large {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.profile-avatar-large img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.profile-info {
+    flex-grow: 1;
+}
+
+.profile-username-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 15px;
+}
+
+.profile-username-row h2 {
+    font-size: 1.75rem;
+    font-weight: normal;
+}
+
+.btn-secondary {
+    background-color: #333;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+}
+
+.profile-stats {
+    display: flex;
+    gap: 40px;
+    margin-bottom: 15px;
+    font-size: 1rem;
+}
+
+.profile-stats .stat {
+    text-align: center;
+}
+
+.profile-stats strong {
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+.profile-bio {
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.profile-address-display {
+    color: #999;
+    font-size: 0.8rem;
+}
+
+.profile-tabs {
+    display: flex;
+    justify-content: center;
+    border-top: 1px solid #1a1a1a;
+    margin-top: 20px;
+}
+
+.profile-tabs .tab {
+    background: none;
+    border: none;
+    color: #999;
+    padding: 15px 30px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    border-top: 1px solid transparent;
+}
+
+.profile-tabs .tab.active {
+    color: #fff;
+    border-top-color: #fff;
+}
+
+.profile-grid {
+    margin-top: 20px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+}
+
+.profile-grid-item {
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+}
+
+.profile-grid-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+
+/* ================================================= */
+/* 9. MODAL */
+/* ================================================= */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal.active {
+    display: flex;
+}
+
+.modal-content {
+    background-color: #1a1a1a;
+    padding: 25px;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 450px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: #f0f0f0;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.form-group input,
+.form-group textarea {
+    width: 100%;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid #333;
+    background-color: #222;
+    color: #f0f0f0;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
