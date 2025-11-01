@@ -4,7 +4,6 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { Web3Storage, File } from 'web3.storage';
 import jwt from 'jsonwebtoken';
 import { ethers } from 'ethers';
 import { query } from './db.js';
@@ -12,7 +11,7 @@ import { query } from './db.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// make sure uploads dir exists
+// garante /uploads
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -21,12 +20,12 @@ if (!fs.existsSync(uploadsDir)) {
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-// this was missing, so old posts could not load
+// servir os arquivos que vc já upou
 app.use('/uploads', express.static(uploadsDir));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hextagram-secret';
-const W3S_TOKEN = process.env.W3S_TOKEN || '';
 
+// storage local
 const diskStorage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, uploadsDir);
@@ -65,7 +64,7 @@ function getAddressFromReq(req) {
   }
 }
 
-// create missing tables
+// cria tabelas se não existirem
 async function ensureTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -118,7 +117,7 @@ async function ensureTables() {
     );
   `);
 
-  // backfill
+  // garante media_type p/ posts antigos
   await query(`UPDATE posts SET media_type = 'image' WHERE media_type IS NULL;`);
 }
 
@@ -140,31 +139,11 @@ app.post('/api/auth', async (req, res) => {
   return res.json({ token, address: address.toLowerCase() });
 });
 
-// MEDIA UPLOAD (post)
+// UPLOAD DE MÍDIA DO POST (LOCAL)
 app.post('/api/upload-media', upload.single('media'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-
-    // default: local file
-    let finalUrl = '/uploads/' + req.file.filename;
-
-    // if token is real web3.storage, try to send there too
-    const isRealWeb3Token = W3S_TOKEN && !W3S_TOKEN.startsWith('did:key:');
-
-    if (isRealWeb3Token) {
-      try {
-        const client = new Web3Storage({ token: W3S_TOKEN });
-        const buffer = fs.readFileSync(path.join(uploadsDir, req.file.filename));
-        const web3File = new File([buffer], req.file.filename, { type: req.file.mimetype });
-        const cid = await client.put([web3File], { wrapWithDirectory: false });
-        finalUrl = `https://${cid}.ipfs.w3s.link`;
-      } catch (err) {
-        console.warn('web3.storage upload failed, using local file instead', err.message);
-      }
-    }
-
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const finalUrl = '/uploads/' + req.file.filename;
     return res.json({ ok: true, url: finalUrl, name: req.file.filename });
   } catch (err) {
     console.error('upload-media error', err);
@@ -172,7 +151,7 @@ app.post('/api/upload-media', upload.single('media'), async (req, res) => {
   }
 });
 
-// AVATAR UPLOAD
+// UPLOAD DE AVATAR (LOCAL)
 app.post('/api/profile/avatar', upload.single('avatar'), async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
@@ -192,9 +171,7 @@ app.post('/api/posts', async (req, res) => {
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
 
   const { media_url, caption } = req.body;
-  if (!media_url) {
-    return res.status(400).json({ error: 'media_url required' });
-  }
+  if (!media_url) return res.status(400).json({ error: 'media_url required' });
 
   const result = await query(
     `INSERT INTO posts (user_address, media_url, media_type, caption)
@@ -206,7 +183,7 @@ app.post('/api/posts', async (req, res) => {
   return res.json(result.rows[0]);
 });
 
-// LIST POSTS (feed, explore)
+// LIST POSTS (FEED / EXPLORE)
 app.get('/api/posts', async (req, res) => {
   const viewer = getAddressFromReq(req);
 
@@ -223,12 +200,8 @@ app.get('/api/posts', async (req, res) => {
       COALESCE(c.cnt, 0) AS comment_count
     FROM posts p
     LEFT JOIN users u ON u.address = p.user_address
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS cnt FROM post_likes pl WHERE pl.post_id = p.id
-    ) l ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS cnt FROM post_comments pc WHERE pc.post_id = p.id
-    ) c ON TRUE
+    LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM post_likes pl WHERE pl.post_id = p.id) l ON TRUE
+    LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM post_comments pc WHERE pc.post_id = p.id) c ON TRUE
     ORDER BY p.created_at DESC
     LIMIT 200
   `);
@@ -270,9 +243,7 @@ app.post('/api/posts/:id/like', async (req, res) => {
     );
   } else {
     await query(
-      `INSERT INTO post_likes (post_id, user_address)
-       VALUES ($1, $2)
-       ON CONFLICT DO NOTHING`,
+      `INSERT INTO post_likes (post_id, user_address) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [postId, address]
     );
   }
@@ -315,9 +286,7 @@ app.post('/api/posts/:id/comments', async (req, res) => {
 
   const postId = Number(req.params.id);
   const { content } = req.body;
-  if (!content || !content.trim()) {
-    return res.status(400).json({ error: 'Content required' });
-  }
+  if (!content || !content.trim()) return res.status(400).json({ error: 'Content required' });
 
   const result = await query(
     `INSERT INTO post_comments (post_id, user_address, content)
@@ -334,7 +303,6 @@ app.delete('/api/posts/:id', async (req, res) => {
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
 
   const postId = Number(req.params.id);
-
   const post = await query(`SELECT * FROM posts WHERE id = $1`, [postId]);
   if (post.rowCount === 0) return res.status(404).json({ error: 'Post not found' });
 
