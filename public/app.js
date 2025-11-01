@@ -33,6 +33,14 @@ document.querySelectorAll(".nav-btn").forEach(btn => {
   });
 });
 
+function setSession(token, address) {
+  authToken = token;
+  currentAddress = address;
+  localStorage.setItem("hextagram_token", token);
+  localStorage.setItem("hextagram_address", address);
+  walletStatus.textContent = address.slice(0, 6) + "..." + address.slice(-4);
+}
+
 async function connectWallet() {
   if (!window.ethereum) {
     alert("Metamask não encontrada");
@@ -40,9 +48,6 @@ async function connectWallet() {
   }
   const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
   const address = accounts[0];
-  currentAddress = address;
-  walletStatus.textContent = address.slice(0, 6) + "..." + address.slice(-4);
-
   const message = "Hextagram login " + Date.now();
   const signature = await window.ethereum.request({
     method: "personal_sign",
@@ -55,10 +60,41 @@ async function connectWallet() {
     body: JSON.stringify({ address, message, signature })
   });
   const data = await r.json();
-  authToken = data.token;
-  loadMyProfile();
+  if (data.token) {
+    setSession(data.token, data.address);
+    loadMyProfile();
+  } else {
+    alert("falhou o login");
+  }
 }
 connectBtn.addEventListener("click", connectWallet);
+
+// restaura sessão se tiver
+(async function restoreSession() {
+  const savedToken = localStorage.getItem("hextagram_token");
+  const savedAddress = localStorage.getItem("hextagram_address");
+  if (savedToken && savedAddress) {
+    authToken = savedToken;
+    currentAddress = savedAddress;
+    walletStatus.textContent = savedAddress.slice(0, 6) + "..." + savedAddress.slice(-4);
+    loadMyProfile();
+  }
+  // escuta troca de conta na metamask
+  if (window.ethereum) {
+    window.ethereum.on("accountsChanged", accs => {
+      if (!accs || !accs.length) {
+        authToken = null;
+        currentAddress = null;
+        localStorage.removeItem("hextagram_token");
+        localStorage.removeItem("hextagram_address");
+        walletStatus.textContent = "Not connected";
+        return;
+      }
+      // força reconectar para pegar novo token
+      connectWallet().catch(() => {});
+    });
+  }
+})();
 
 async function fetchFeed() {
   const r = await fetch("/api/posts");
@@ -84,6 +120,7 @@ function renderFeed(posts, container) {
     container.appendChild(div);
   });
 }
+
 async function loadMyProfile() {
   if (!authToken) return;
   const r = await fetch("/api/profile/me", {
@@ -96,6 +133,7 @@ async function loadMyProfile() {
   profileAvatar.src = data?.avatar_url || "https://placehold.co/96x96";
   loadMyPosts();
 }
+
 document.getElementById("saveProfileBtn").addEventListener("click", async () => {
   if (!authToken) {
     alert("Conecte a wallet");
@@ -115,6 +153,7 @@ document.getElementById("saveProfileBtn").addEventListener("click", async () => 
   });
   alert("saved");
 });
+
 profileAvatarFile.addEventListener("change", async e => {
   const file = e.target.files[0];
   if (!file) return;
@@ -131,6 +170,7 @@ profileAvatarFile.addEventListener("change", async e => {
     uploadStatus.textContent = "avatar upload fail";
   }
 });
+
 uploadBtn.addEventListener("click", async () => {
   if (!authToken) {
     alert("Conecte a wallet");
@@ -169,6 +209,7 @@ uploadBtn.addEventListener("click", async () => {
   fetchFeed();
   loadMyPosts();
 });
+
 async function loadMyPosts() {
   const r = await fetch("/api/posts");
   const data = await r.json();
@@ -177,5 +218,6 @@ async function loadMyPosts() {
   );
   renderFeed(mine, myPosts);
 }
+
 fetchFeed();
 
