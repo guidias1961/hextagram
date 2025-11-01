@@ -18,16 +18,17 @@ app.use(express.urlencoded({ extended: true }));
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// vars do Railway
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "hextagram-secret";
 
+// normaliza a base de entrega do Cloudflare
+const rawDelivery = process.env.CF_IMAGES_DELIVERY_URL || "";
+const CF_IMAGES_DELIVERY_BASE = rawDelivery
+  .replace(/\/<image_id>.*$/i, "")
+  .replace(/\/+$/, "");
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
 const CF_API_TOKEN = process.env.CF_API_TOKEN || "";
-const CF_IMAGES_DELIVERY_URL =
-  process.env.CF_IMAGES_DELIVERY_URL || "";
 
-// servir front
 app.use(express.static(path.join(__dirname, "public")));
 
 async function getOrCreateUser(address) {
@@ -44,35 +45,30 @@ async function getOrCreateUser(address) {
 
 function authRequired(req, res, next) {
   const auth = req.headers.authorization;
-  if (!auth) {
-    return res.status(401).json({ error: "no token" });
-  }
+  if (!auth) return res.status(401).json({ error: "no token" });
   const [, token] = auth.split(" ");
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     return next();
-  } catch (e) {
+  } catch {
     return res.status(401).json({ error: "invalid token" });
   }
 }
 
-// rota para ver se CF está configurado
+// mostra config atual para o front
 app.get("/api/cf/config", (req, res) => {
-  const configured = !!(CF_ACCOUNT_ID && CF_API_TOKEN);
-  return res.json({
-    configured,
+  res.json({
+    configured: !!(CF_ACCOUNT_ID && CF_API_TOKEN),
     accountId: CF_ACCOUNT_ID ? "ok" : null,
-    deliveryUrl: CF_IMAGES_DELIVERY_URL || null
+    deliveryUrl: CF_IMAGES_DELIVERY_BASE || null
   });
 });
 
-// rota que gera uploadURL do cloudflare
+// gera upload-url no cloudflare
 app.post("/api/cf/image-url", authRequired, async (req, res) => {
   if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
-    return res
-      .status(500)
-      .json({ error: "Cloudflare Images not configured" });
+    return res.status(500).json({ error: "CF not configured" });
   }
   try {
     const cfRes = await fetch(
@@ -86,104 +82,92 @@ app.post("/api/cf/image-url", authRequired, async (req, res) => {
     );
     const data = await cfRes.json();
     if (!data.success) {
-      return res.status(500).json({ error: "CF error", detail: data });
+      // loga no server do railway pra tu ver
+      console.error("CF upload-url error:", JSON.stringify(data, null, 2));
+      return res.status(500).json({
+        error: "CF error",
+        cf: data
+      });
     }
     return res.json({
       uploadURL: data.result.uploadURL,
       id: data.result.id
     });
   } catch (e) {
+    console.error("CF fetch error:", e);
     return res.status(500).json({ error: e.message });
   }
 });
 
-// login flow
-
-// 1. cliente pede nonce
+// auth
 app.get("/api/auth/nonce/:address", async (req, res) => {
   const addr = req.params.address.toLowerCase();
   const nonce = "hextagram-" + Math.floor(Math.random() * 1e9);
   await pool.query(
-    `
-      insert into wallet_nonces(address, nonce, updated_at)
-      values($1, $2, now())
-      on conflict(address)
-      do update set nonce = excluded.nonce, updated_at = now()
+    `insert into wallet_nonces(address, nonce, updated_at)
+     values($1,$2,now())
+     on conflict(address)
+     do update set nonce = excluded.nonce, updated_at = now()
     `,
     [addr, nonce]
   );
-  return res.json({ nonce });
+  res.json({ nonce });
 });
 
-// 2. cliente manda assinatura
 app.post("/api/auth/verify", async (req, res) => {
   const { address, signature } = req.body;
-  if (!address || !signature) {
-    return res.status(400).json({ error: "missing data" });
-  }
+  if (!address || !signature) return res.status(400).json({ error: "missing data" });
+
   const addr = address.toLowerCase();
-  const q = await pool.query(
-    "select nonce from wallet_nonces where address = $1",
-    [addr]
-  );
-  if (!q.rows.length) {
-    return res.status(400).json({ error: "nonce not found" });
-  }
+  const q = await pool.query("select nonce from wallet_nonces where address = $1", [
+    addr
+  ]);
+  if (!q.rows.length) return res.status(400).json({ error: "nonce not found" });
+
   const nonce = q.rows[0].nonce;
   const message = `Hextagram login on PulseChain, nonce: ${nonce}`;
 
-  // verifica assinatura
   let recovered;
   try {
     recovered = ethers.verifyMessage(message, signature).toLowerCase();
-  } catch (e) {
+  } catch {
     return res.status(400).json({ error: "invalid signature" });
   }
-  if (recovered !== addr) {
-    return res.status(400).json({ error: "address mismatch" });
-  }
+  if (recovered !== addr) return res.status(400).json({ error: "address mismatch" });
 
-  // cria user se não existir
   await getOrCreateUser(addr);
 
-  const token = jwt.sign({ address: addr }, JWT_SECRET, {
-    expiresIn: "7d"
-  });
-  return res.json({ token });
+  const token = jwt.sign({ address: addr }, JWT_SECRET, { expiresIn: "7d" });
+  res.json({ token });
 });
 
-// perfil atual
+// profile
 app.get("/api/me", authRequired, async (req, res) => {
   const addr = req.user.address;
-  const q = await pool.query("select * from users where address = $1", [
-    addr
-  ]);
+  const q = await pool.query("select * from users where address = $1", [addr]);
   if (!q.rows.length) {
     const u = await getOrCreateUser(addr);
     return res.json(u);
   }
-  return res.json(q.rows[0]);
+  res.json(q.rows[0]);
 });
 
-// update perfil
 app.post("/api/me", authRequired, async (req, res) => {
   const addr = req.user.address;
   const { username, bio, avatar_url } = req.body;
   const q = await pool.query(
     `
-    update users
-    set username = $1,
-        bio = $2,
-        avatar_url = $3
-    where address = $4
-    returning *
-  `,
+      update users
+      set username = $1, bio = $2, avatar_url = $3
+      where address = $4
+      returning *
+    `,
     [username || null, bio || null, avatar_url || null, addr]
   );
-  return res.json(q.rows[0]);
+  res.json(q.rows[0]);
 });
 
-// pegar posts do feed
+// posts
 app.get("/api/posts", async (req, res) => {
   const q = await pool.query(
     `
@@ -192,27 +176,24 @@ app.get("/api/posts", async (req, res) => {
     left join users u on u.address = p.user_address
     order by p.created_at desc
     limit 200
-  `
+    `
   );
-  return res.json(q.rows);
+  res.json(q.rows);
 });
 
-// criar post
 app.post("/api/posts", authRequired, async (req, res) => {
   const addr = req.user.address;
   const { media_url, media_type, caption } = req.body;
-  if (!media_url) {
-    return res.status(400).json({ error: "media_url required" });
-  }
+  if (!media_url) return res.status(400).json({ error: "media_url required" });
   const ins = await pool.query(
     `
     insert into posts(user_address, media_url, media_type, caption)
-    values($1, $2, $3, $4)
+    values($1,$2,$3,$4)
     returning *
-  `,
+    `,
     [addr, media_url, media_type || null, caption || null]
   );
-  return res.json(ins.rows[0]);
+  res.json(ins.rows[0]);
 });
 
 // fallback
@@ -223,12 +204,10 @@ app.get("*", (req, res) => {
 // start
 initDb()
   .then(() => {
-    app.listen(PORT, () => {
-      console.log("Hextagram running on port " + PORT);
-    });
+    app.listen(PORT, () => console.log("Hextagram on " + PORT));
   })
-  .catch((err) => {
-    console.error("DB init error", err);
+  .catch((e) => {
+    console.error("DB init error", e);
     process.exit(1);
   });
 
