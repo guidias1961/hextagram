@@ -1,55 +1,156 @@
-// db.js
-import pkg from "pg";
+// server.js
+import express from "express";
+import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
+import jwt from "jsonwebtoken";
+import { ethers } from "ethers";
+import { initDb, query } from "./db.js";
 
-const { Pool } = pkg;
+const app = express();
+const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || "hextagram-secret";
 
-const connectionString = process.env.DATABASE_URL;
-const ssl =
-  process.env.DATABASE_SSL === "true"
-    ? { rejectUnauthorized: false }
-    : false;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-export const pool = new Pool({
-  connectionString,
-  ssl
+app.use(cors());
+app.use(express.json({ limit: "15mb" }));
+app.use(express.static(path.join(__dirname, "public")));
+
+await initDb();
+
+app.get("/api/config", (req, res) => {
+  res.json({
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME || "dg2xpadhr",
+    uploadPreset: process.env.CLOUDINARY_UPLOAD_PRESET || "hextagram_unsigned"
+  });
 });
 
-export async function initDb() {
-  // users
-  await pool.query(`
-    create table if not exists users (
-      address text primary key,
-      username text,
-      bio text,
-      avatar_url text,
-      created_at timestamptz default now()
+app.post("/api/auth", async (req, res) => {
+  try {
+    const { address, message, signature } = req.body;
+    if (!address || !message || !signature) {
+      return res.status(400).json({ error: "missing params" });
+    }
+
+    const recovered = ethers.utils.verifyMessage(message, signature);
+    if (recovered.toLowerCase() !== address.toLowerCase()) {
+      return res.status(401).json({ error: "signature invalid" });
+    }
+
+    const addr = address.toLowerCase();
+
+    await query(
+      `insert into users (address) values ($1)
+       on conflict (address) do nothing`,
+      [addr]
     );
-  `);
 
-  // posts (primeira versão que tu tinha)
-  await pool.query(`
-    create table if not exists posts (
-      id serial primary key,
-      media_url text not null,
-      caption text,
-      created_at timestamptz default now()
-    );
-  `);
+    const token = jwt.sign({ address: addr }, JWT_SECRET, {
+      expiresIn: "7d"
+    });
 
-  // garante que exista a coluna address mesmo que a tabela já estivesse criada
-  await pool.query(`
-    alter table posts
-    add column if not exists address text;
-  `);
+    res.json({ token, address: addr });
+  } catch (err) {
+    console.error("auth error", err);
+    res.status(500).json({ error: "auth failed" });
+  }
+});
 
-  // opcional para index
-  await pool.query(`
-    create index if not exists posts_created_at_idx on posts(created_at desc);
-  `);
+function auth(req, res, next) {
+  const h = req.headers.authorization;
+  if (!h) return res.status(401).json({ error: "no token" });
+  const token = h.split(" ")[1];
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.user = payload;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "invalid token" });
+  }
 }
 
-export async function query(q, params) {
-  const res = await pool.query(q, params);
-  return res;
-}
+app.get("/api/profile/me", auth, async (req, res) => {
+  const addr = req.user.address;
+  const r = await query(
+    "select address, username, bio, avatar_url from users where address=$1",
+    [addr]
+  );
+  res.json(r.rows[0] || null);
+});
+
+app.put("/api/profile", auth, async (req, res) => {
+  const addr = req.user.address;
+  const { username, bio, avatar_url } = req.body;
+
+  await query(
+    `update users set
+       username = $1,
+       bio = $2,
+       avatar_url = $3
+     where address = $4`,
+    [username || null, bio || null, avatar_url || null, addr]
+  );
+
+  const r = await query(
+    "select address, username, bio, avatar_url from users where address=$1",
+    [addr]
+  );
+  res.json(r.rows[0]);
+});
+
+app.post("/api/posts", auth, async (req, res) => {
+  try {
+    const addr = req.user.address;
+    const { media_url, caption } = req.body;
+
+    if (!media_url) {
+      return res.status(400).json({ error: "media_url required" });
+    }
+
+    const r = await query(
+      `insert into posts (address, user_address, media_url, caption)
+       values ($1, $1, $2, $3)
+       returning id, address, user_address, media_url, caption, created_at`,
+      [addr, media_url, caption || null]
+    );
+
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error("create post error", err);
+    res.status(500).json({ error: "create post failed" });
+  }
+});
+
+app.get("/api/posts", async (req, res) => {
+  try {
+    const r = await query(
+      `select
+         p.id,
+         p.media_url,
+         p.caption,
+         p.created_at,
+         coalesce(p.address, p.user_address) as address,
+         u.username,
+         u.avatar_url
+       from posts p
+       left join users u on u.address = coalesce(p.address, p.user_address)
+       order by p.created_at desc
+       limit 100`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("feed error", err);
+    res.json([]);
+  }
+});
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+app.listen(PORT, () => {
+  console.log("Hextagram on", PORT);
+});
 
