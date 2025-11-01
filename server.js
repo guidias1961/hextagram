@@ -2,10 +2,10 @@ import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import multer from "multer";
-import { fileURLToPath } from "url";
+import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { initDb, query } from "./db.js";
-import { create as storachaCreate } from "@storacha/client";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,15 +16,15 @@ const upload = multer({ storage: multer.memoryStorage() });
 const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret";
 const PORT = process.env.PORT || 3000;
 
-const STORACHA_KEY = process.env.STORACHA_KEY || "";
-const STORACHA_PROOF = process.env.STORACHA_PROOF || "";
-const STORACHA_SPACE_DID = process.env.STORACHA_SPACE_DID || "";
-
-let storachaClient = null;
+const uploadsDir = path.join(__dirname, "public", "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "20mb" }));
 app.use(express.static(path.join(__dirname, "public")));
+app.use("/uploads", express.static(uploadsDir));
 
 function auth(req, res, next) {
   const h = req.headers.authorization;
@@ -36,6 +36,12 @@ function auth(req, res, next) {
   } catch (e) {
     return res.status(401).json({ error: "invalid token" });
   }
+}
+
+function guessMediaType(url) {
+  const lower = url.split("?")[0].toLowerCase();
+  if (lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.endsWith(".mov")) return "video";
+  return "image";
 }
 
 app.post("/api/auth/simple", async (req, res) => {
@@ -52,38 +58,50 @@ app.post("/api/auth/simple", async (req, res) => {
 app.post("/api/upload-media", auth, upload.single("media"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "no file" });
-    if (!storachaClient) return res.status(500).json({ error: "storacha not ready" });
 
-    const file = new File([req.file.buffer], req.file.originalname, {
-      type: req.file.mimetype
+    const filename =
+      Date.now() + "-" + req.file.originalname.replace(/\s+/g, "_").toLowerCase();
+    const filepath = path.join(uploadsDir, filename);
+    fs.writeFileSync(filepath, req.file.buffer);
+    const mediaUrl = `/uploads/${filename}`;
+
+    return res.json({
+      success: true,
+      media_url: mediaUrl,
+      media_type: guessMediaType(mediaUrl)
     });
-
-    const cid = await storachaClient.uploadFile(file);
-    const url = `https://${cid}.ipfs.storacha.link/${req.file.originalname}`;
-    return res.json({ success: true, media_url: url });
   } catch (err) {
-    console.error("storacha upload error", err);
-    return res.status(500).json({ error: "upload failed", detail: err.message });
+    console.error("upload error", err);
+    return res.status(500).json({ error: "upload failed" });
   }
 });
 
 app.post("/api/posts", auth, async (req, res) => {
-  const { address } = req.user;
-  const { media_url, caption } = req.body;
-  if (!media_url) return res.status(400).json({ error: "media_url required" });
+  try {
+    const { address } = req.user;
+    const { media_url, caption, media_type } = req.body;
 
-  const r = await query(
-    `INSERT INTO posts (user_address, media_url, caption)
-     VALUES ($1, $2, $3)
-     RETURNING id, user_address AS address, media_url, caption, created_at`,
-    [address, media_url, caption || null]
-  );
-  res.status(201).json(r.rows[0]);
+    if (!media_url) return res.status(400).json({ error: "media_url required" });
+
+    const mt = media_type || guessMediaType(media_url);
+
+    const r = await query(
+      `INSERT INTO posts (user_address, media_url, caption, media_type)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, user_address AS address, media_url, caption, media_type, created_at`,
+      [address, media_url, caption || null, mt]
+    );
+
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error("create post:", err);
+    res.status(500).json({ error: "failed to create post" });
+  }
 });
 
 app.get("/api/posts", async (req, res) => {
   const r = await query(
-    `SELECT id, user_address AS address, media_url, caption, created_at
+    `SELECT id, user_address AS address, media_url, caption, media_type, created_at
      FROM posts
      ORDER BY created_at DESC
      LIMIT 200`
@@ -91,34 +109,19 @@ app.get("/api/posts", async (req, res) => {
   res.json(r.rows);
 });
 
-app.get("/api/profile/me", auth, async (req, res) => {
-  const r = await query(
-    `SELECT address, username, bio, avatar_url, created_at
-     FROM users WHERE address = $1`,
-    [req.user.address]
-  );
-  if (r.rows.length === 0) return res.json({ address: req.user.address });
-  res.json(r.rows[0]);
+app.get("/api/health", (req, res) => {
+  res.json({ ok: true });
+});
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 async function start() {
   await initDb();
-
-  if (STORACHA_KEY && STORACHA_PROOF && STORACHA_SPACE_DID) {
-    storachaClient = await storachaCreate({
-      principal: STORACHA_KEY,
-      proof: STORACHA_PROOF,
-      space: STORACHA_SPACE_DID
-    });
-    console.log("Storacha conectado ao space", STORACHA_SPACE_DID);
-  } else {
-    console.warn("Storacha vars faltando, configure no Railway");
-  }
-
   app.listen(PORT, () => {
     console.log("Hextagram na porta", PORT);
   });
 }
-
 start();
 
