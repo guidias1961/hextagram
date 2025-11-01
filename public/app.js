@@ -1,30 +1,11 @@
-// app.js
-const API_BASE = '';
+// app.js alinhado com o index.html atual
 
-let state = {
+const API = '';
+
+const state = {
   address: null,
   token: null,
-  currentView: 'feed',
   uploading: false
-};
-
-const els = {
-  feedBtn: document.getElementById('nav-feed'),
-  exploreBtn: document.getElementById('nav-explore'),
-  createBtn: document.getElementById('nav-create'),
-  profileBtn: document.getElementById('nav-profile'),
-  walletStatus: document.getElementById('wallet-status') || document.getElementById('wallet-address'),
-  walletBtn: document.getElementById('wallet-connect') || document.getElementById('connect-wallet'),
-  viewFeed: document.getElementById('view-feed'),
-  viewExplore: document.getElementById('view-explore'),
-  viewCreate: document.getElementById('view-create') || document.getElementById('view-upload'),
-  viewProfile: document.getElementById('view-profile'),
-  feedPosts: document.getElementById('feed-posts'),
-  createFile: document.getElementById('create-file') || document.getElementById('file-input'),
-  createCaption: document.getElementById('create-caption') || document.getElementById('caption-input'),
-  createPreview: document.getElementById('create-preview') || document.getElementById('upload-preview'),
-  createSubmit: document.getElementById('create-submit') || document.getElementById('upload-btn'),
-  profileBox: document.getElementById('profile-box')
 };
 
 function saveSession() {
@@ -43,24 +24,27 @@ function loadSession() {
   }
 }
 
-function setView(name) {
-  state.currentView = name;
-  const all = [els.viewFeed, els.viewExplore, els.viewCreate, els.viewProfile];
-  all.forEach(v => v && (v.style.display = 'none'));
-  if (name === 'feed' && els.viewFeed) els.viewFeed.style.display = 'block';
-  if (name === 'explore' && els.viewExplore) els.viewExplore.style.display = 'block';
-  if (name === 'create' && els.viewCreate) els.viewCreate.style.display = 'block';
-  if (name === 'profile' && els.viewProfile) els.viewProfile.style.display = 'block';
-  if (name === 'feed') loadFeed();
-  if (name === 'profile') loadProfile();
+function setView(view) {
+  const views = document.querySelectorAll('.view');
+  views.forEach(v => v.classList.remove('active'));
+  const el = document.getElementById(`view-${view}`);
+  if (el) el.classList.add('active');
+
+  const navs = document.querySelectorAll('.nav-item');
+  navs.forEach(n => {
+    if (n.dataset.view === view) n.classList.add('active');
+    else n.classList.remove('active');
+  });
+
+  if (view === 'feed') loadFeed();
+  if (view === 'profile') loadProfile();
 }
 
 async function connectWallet() {
   try {
     if (window.ethereum && window.ethereum.request) {
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-      const addr = accounts[0];
-      await simpleAuth(addr);
+      await simpleAuth(accounts[0]);
     } else {
       const manual = prompt('Informe seu endereço 0x');
       if (!manual) return;
@@ -73,80 +57,83 @@ async function connectWallet() {
 }
 
 async function simpleAuth(address) {
-  const resp = await fetch(`${API_BASE}/api/auth/simple`, {
+  const resp = await fetch(`${API}/api/auth/simple`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ address })
   });
   const data = await resp.json();
-  if (data.token) {
-    state.token = data.token;
-    state.address = data.address;
-    saveSession();
-    refreshWalletStatus();
-    loadFeed();
-    loadProfile();
-  } else {
+  if (!resp.ok) {
     alert('falha ao autenticar');
+    return;
   }
+  state.address = data.address;
+  state.token = data.token;
+  saveSession();
+  updateWalletUI();
+  loadFeed();
+  loadProfile();
 }
 
-function refreshWalletStatus() {
-  if (!els.walletStatus) return;
+function updateWalletUI() {
+  const w = document.getElementById('wallet-address');
+  if (!w) return;
   if (state.address) {
-    els.walletStatus.textContent = `${state.address.slice(0, 6)}...${state.address.slice(-4)}`;
+    w.textContent = `${state.address.slice(0, 6)}...${state.address.slice(-4)}`;
   } else {
-    els.walletStatus.textContent = 'Não conectado';
+    w.textContent = 'Não conectado';
   }
 }
 
 async function loadFeed() {
-  if (!els.feedPosts) return;
-  els.feedPosts.innerHTML = '<p class="muted">Carregando...</p>';
+  const container = document.getElementById('feed-posts');
+  if (!container) return;
+  container.innerHTML = '<p class="muted">Carregando...</p>';
   try {
     const resp = await fetch('/api/posts');
     const ct = resp.headers.get('content-type') || '';
     if (!ct.includes('application/json')) {
       const txt = await resp.text();
-      console.error('/api/posts retornou html', txt.slice(0, 200));
-      els.feedPosts.innerHTML = '<p class="error">Erro ao carregar posts.</p>';
+      console.error('/api/posts devolveu html:', txt.slice(0, 200));
+      container.innerHTML = '<p class="error">Erro ao carregar posts.</p>';
       return;
     }
     const posts = await resp.json();
     if (!Array.isArray(posts) || posts.length === 0) {
-      els.feedPosts.innerHTML = '<p class="muted">Nenhum post ainda</p>';
+      container.innerHTML = '<p class="muted">Nenhum post ainda</p>';
       return;
     }
-    els.feedPosts.innerHTML = '';
-    posts.forEach(renderPost);
+    container.innerHTML = '';
+    posts.forEach(p => container.appendChild(renderPost(p)));
   } catch (err) {
     console.error(err);
-    els.feedPosts.innerHTML = '<p class="error">Erro ao carregar posts.</p>';
+    container.innerHTML = '<p class="error">Erro ao carregar posts.</p>';
   }
 }
 
 function renderPost(post) {
-  const card = document.createElement('div');
+  const card = document.createElement('article');
   card.className = 'post-card';
 
   const header = document.createElement('div');
   header.className = 'post-header';
-  const name = post.address ? post.address.slice(0, 6) + '...' + post.address.slice(-4) : 'user';
-  header.textContent = name;
+  header.textContent = post.address
+    ? post.address.slice(0, 6) + '...' + post.address.slice(-4)
+    : 'user';
 
-  const mediaBox = document.createElement('div');
-  mediaBox.className = 'post-media';
+  const media = document.createElement('div');
+  media.className = 'post-media';
   const type = post.media_type || 'image';
-
   if (type === 'video') {
     const v = document.createElement('video');
     v.src = post.media_url;
     v.controls = true;
-    mediaBox.appendChild(v);
+    media.appendChild(v);
   } else {
     const img = document.createElement('img');
     img.src = post.media_url;
-    mediaBox.appendChild(img);
+    img.alt = post.caption || '';
+    media.appendChild(img);
   }
 
   const caption = document.createElement('p');
@@ -154,15 +141,16 @@ function renderPost(post) {
   caption.textContent = post.caption || '';
 
   card.appendChild(header);
-  card.appendChild(mediaBox);
+  card.appendChild(media);
   card.appendChild(caption);
-
-  els.feedPosts.appendChild(card);
+  return card;
 }
 
 async function loadProfile() {
+  const box = document.getElementById('view-profile');
+  if (!box) return;
   if (!state.token) {
-    if (els.profileBox) els.profileBox.innerHTML = '<p>Conecte a wallet primeiro.</p>';
+    document.getElementById('profile-address-display').textContent = 'Conecte a wallet';
     return;
   }
   try {
@@ -173,121 +161,123 @@ async function loadProfile() {
     if (!ct.includes('application/json')) {
       const txt = await resp.text();
       console.error('/api/profile/me html', txt.slice(0, 200));
-      if (els.profileBox) els.profileBox.innerHTML = '<p>Erro ao carregar perfil</p>';
       return;
     }
     const data = await resp.json();
-    if (els.profileBox) {
-      els.profileBox.innerHTML = `
-        <h2>Perfil</h2>
-        <p><strong>Address</strong> ${data.address || ''}</p>
-        <p><strong>Username</strong> ${data.username || '-'}</p>
-        <p><strong>Bio</strong> ${data.bio || '-'}</p>
-      `;
-    }
+    const addrEl = document.getElementById('profile-address-display');
+    const userEl = document.getElementById('profile-username-display');
+    const bioEl = document.getElementById('profile-bio-display');
+    if (addrEl) addrEl.textContent = data.address || '';
+    if (userEl) userEl.textContent = data.username || '(sem nome)';
+    if (bioEl) bioEl.textContent = data.bio || '';
   } catch (err) {
     console.error(err);
-    if (els.profileBox) els.profileBox.innerHTML = '<p>Erro ao carregar perfil</p>';
   }
 }
 
-function handleFileChange() {
-  const file = els.createFile && els.createFile.files[0];
-  if (!file) {
-    if (els.createPreview) els.createPreview.innerHTML = '';
-    return;
-  }
-  const url = URL.createObjectURL(file);
-  if (els.createPreview) {
-    els.createPreview.innerHTML = `<img src="${url}" class="create-preview-img" />`;
-  }
-}
+function bindUpload() {
+  const fileInput = document.getElementById('file-input');
+  const selectBtn = document.getElementById('select-file');
+  const captionInput = document.getElementById('caption-input');
+  const uploadBtn = document.getElementById('upload-btn');
+  const preview = document.getElementById('upload-preview');
+  const status = document.getElementById('upload-status');
 
-async function handleCreateSubmit() {
-  if (state.uploading) return;
-  if (!state.token) {
-    alert('conecte a wallet primeiro');
-    return;
-  }
-  const file = els.createFile && els.createFile.files[0];
-  if (!file) {
-    alert('selecione uma imagem');
-    return;
-  }
-  state.uploading = true;
-  if (els.createSubmit) {
-    els.createSubmit.disabled = true;
-    els.createSubmit.textContent = 'Enviando...';
+  if (selectBtn && fileInput) {
+    selectBtn.addEventListener('click', () => fileInput.click());
   }
 
-  try {
-    const fd = new FormData();
-    fd.append('media', file);
-    const up = await fetch('/api/upload-media', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${state.token}` },
-      body: fd
+  if (fileInput && preview) {
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files[0];
+      if (!f) {
+        preview.innerHTML = '';
+        return;
+      }
+      const url = URL.createObjectURL(f);
+      preview.innerHTML = `<img src="${url}" class="create-preview-img" />`;
     });
-    const upData = await up.json();
-    if (!up.ok || !upData.media_url) {
-      console.error('upload fail', upData);
-      alert('upload falhou');
-      return;
-    }
+  }
 
-    const caption = els.createCaption ? els.createCaption.value.trim() : '';
-    const postResp = await fetch('/api/posts', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${state.token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        media_url: upData.media_url,
-        caption,
-        media_type: upData.media_type || 'image'
-      })
+  if (uploadBtn) {
+    uploadBtn.addEventListener('click', async () => {
+      if (!state.token) {
+        alert('conecte a wallet primeiro');
+        return;
+      }
+      const f = fileInput && fileInput.files[0];
+      if (!f) {
+        alert('selecione uma imagem');
+        return;
+      }
+      status.textContent = 'Enviando...';
+      try {
+        const fd = new FormData();
+        fd.append('media', f);
+        const up = await fetch('/api/upload-media', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${state.token}` },
+          body: fd
+        });
+        const upData = await up.json();
+        if (!up.ok || !upData.media_url) {
+          console.error('upload falhou', upData);
+          status.textContent = 'Falha no upload';
+          return;
+        }
+        const caption = captionInput ? captionInput.value.trim() : '';
+        const postResp = await fetch('/api/posts', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${state.token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            media_url: upData.media_url,
+            caption,
+            media_type: upData.media_type || 'image'
+          })
+        });
+        const postData = await postResp.json();
+        if (!postResp.ok) {
+          console.error('post falhou', postData);
+          status.textContent = 'Erro ao publicar';
+          return;
+        }
+        // reset
+        if (fileInput) fileInput.value = '';
+        if (preview) preview.innerHTML = '';
+        if (captionInput) captionInput.value = '';
+        status.textContent = 'Publicado';
+        setView('feed');
+      } catch (err) {
+        console.error(err);
+        status.textContent = 'Erro';
+      }
     });
-    const postData = await postResp.json();
-    if (!postResp.ok) {
-      console.error('post fail', postData);
-      alert('erro ao criar post');
-      return;
-    }
-
-    if (els.createFile) els.createFile.value = '';
-    if (els.createCaption) els.createCaption.value = '';
-    if (els.createPreview) els.createPreview.innerHTML = '';
-
-    setView('feed');
-  } catch (err) {
-    console.error(err);
-    alert('erro ao publicar');
-  } finally {
-    state.uploading = false;
-    if (els.createSubmit) {
-      els.createSubmit.disabled = false;
-      els.createSubmit.textContent = 'Publicar';
-    }
   }
 }
 
-function bindEvents() {
-  if (els.feedBtn) els.feedBtn.addEventListener('click', () => setView('feed'));
-  if (els.exploreBtn) els.exploreBtn.addEventListener('click', () => setView('explore'));
-  if (els.createBtn) els.createBtn.addEventListener('click', () => setView('create'));
-  if (els.profileBtn) els.profileBtn.addEventListener('click', () => setView('profile'));
-  if (els.walletBtn) els.walletBtn.addEventListener('click', connectWallet);
-  if (els.createFile) els.createFile.addEventListener('change', handleFileChange);
-  if (els.createSubmit) els.createSubmit.addEventListener('click', handleCreateSubmit);
+function bindNav() {
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = btn.dataset.view;
+      if (v) setView(v);
+    });
+  });
 }
 
-function init() {
+function bindWallet() {
+  const btn = document.getElementById('connect-wallet');
+  if (btn) btn.addEventListener('click', connectWallet);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
   loadSession();
-  bindEvents();
-  refreshWalletStatus();
+  bindNav();
+  bindWallet();
+  bindUpload();
+  updateWalletUI();
   setView('feed');
-}
-
-document.addEventListener('DOMContentLoaded', init);
+});
 
