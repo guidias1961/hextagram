@@ -5,8 +5,9 @@ import jwt from "jsonwebtoken";
 import { ethers } from "ethers";
 import { query, initDb } from "./db.js";
 // NOVAS IMPORTAÇÕES PARA UPLOAD
-import multer from "multer"; // Para lidar com multipart/form-data
-import { create as createW3SClient } from '@web3-storage/w3up';
+import multer from "multer"; 
+// MUDANÇA AQUI: de @web3-storage/w3up para web3.storage
+import { Web3Storage } from 'web3.storage';
 
 const app = express();
 
@@ -25,16 +26,16 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Inicializar banco de dados
 await initDb();
 
-// Inicializar cliente W3S (necessário para autenticar a chave)
+// Inicializar cliente W3S
 let w3sClient;
 if (W3S_TOKEN) {
     try {
-        console.log('Initializing w3up client...');
-        w3sClient = await createW3SClient();
-        await w3sClient.login(W3S_TOKEN); // Usar o token como email/identificador de login para simplificar
-        console.log('✓ w3up client initialized and authenticated');
+        console.log('Initializing Web3Storage client...');
+        // MUDANÇA AQUI: Criamos a instância da classe com o token
+        w3sClient = new Web3Storage({ token: W3S_TOKEN });
+        console.log('✓ Web3Storage client initialized');
     } catch (error) {
-        console.error('✗ Failed to initialize w3up client:', error);
+        console.error('✗ Failed to initialize Web3Storage client:', error);
     }
 }
 
@@ -112,20 +113,21 @@ app.post("/api/upload-media", authenticate, upload.single('media'), async (req, 
         }
         
         if (!w3sClient) {
-            throw new Error("Cliente W3S não inicializado. Verifique W3S_TOKEN.");
+            return res.status(500).json({ error: "Cliente Web3Storage não inicializado. Verifique W3S_TOKEN." });
         }
 
         console.log(`📤 Upload de arquivo iniciado: ${req.file.originalname} (${req.file.size} bytes)`);
 
-        // Cria um objeto File para o W3S a partir do buffer
-        const file = new File([req.file.buffer], req.file.originalname, { type: req.file.mimetype });
+        // Cria um objeto File para o W3S a partir do buffer (Web3.storage usa um Array de Files)
+        const files = [new File([req.file.buffer], req.file.originalname, { type: req.file.mimetype })];
         
         // Faz o upload e a fixação (pinning) no Filecoin/IPFS
-        const cid = await w3sClient.uploadFile(file);
+        // MUDANÇA AQUI: O método para fazer o upload é client.put(files)
+        const cid = await w3sClient.put(files);
         
         console.log(`✓ Upload W3S OK. CID: ${cid}`);
 
-        // Retorna o URL do Gateway para o frontend
+        // O link direto para o arquivo (usando o CID do diretório raiz) é:
         const mediaUrl = `https://${cid}.ipfs.dweb.link/${req.file.originalname}`;
 
         res.json({ success: true, media_url: mediaUrl });
