@@ -16,14 +16,6 @@ export const pool = new Pool({
   connectionTimeoutMillis: 2000
 });
 
-pool.on("connect", () => {
-  console.log("✓ db conectado");
-});
-
-pool.on("error", (err) => {
-  console.error("db error:", err);
-});
-
 export async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -46,13 +38,6 @@ export async function initDb() {
         REFERENCES users(address) ON DELETE CASCADE
     );
   `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_posts_created_at
-      ON posts (created_at DESC);
-  `);
-
-  console.log("✓ schema ok");
 }
 
 export async function query(text, params) {

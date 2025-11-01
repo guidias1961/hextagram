@@ -14,19 +14,18 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// envs
 const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret_key_2024";
 const W3S_TOKEN = process.env.W3S_TOKEN;
 const PORT = process.env.PORT || 3000;
 
-// middlewares
 app.use(cors());
 app.use(express.json());
 
-// estáticos
+// serve tudo que estiver em public
 app.use(express.static(path.join(__dirname, "public")));
+// e também o diretório raiz caso o Railway coloque arquivos na raiz
+app.use(express.static(__dirname));
 
-// multer em memória
 const upload = multer({ storage: multer.memoryStorage() });
 
 let w3sClient = null;
@@ -36,21 +35,19 @@ async function bootstrap() {
 
   if (W3S_TOKEN) {
     w3sClient = new Web3Storage({ token: W3S_TOKEN });
-    console.log("✓ Web3Storage client pronto");
+    console.log("web3.storage ok");
   } else {
-    console.warn("W3S_TOKEN não definido, upload para IPFS vai falhar");
+    console.warn("W3S_TOKEN não definido");
   }
 
   app.listen(PORT, () => {
-    console.log(`Hextagram rodando na porta ${PORT}`);
+    console.log("Hextagram na porta", PORT);
   });
 }
 
-// auth middleware
 function authenticate(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth) return res.status(401).json({ error: "missing auth header" });
-
   const token = auth.split(" ")[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
@@ -61,11 +58,9 @@ function authenticate(req, res, next) {
   }
 }
 
-// auth web3
 app.post("/api/auth", async (req, res) => {
   try {
     const { address, message, signature } = req.body;
-
     if (!address || !message || !signature) {
       return res.status(400).json({ error: "missing fields" });
     }
@@ -76,7 +71,8 @@ app.post("/api/auth", async (req, res) => {
     }
 
     await query(
-      `INSERT INTO users (address) VALUES ($1::text) ON CONFLICT (address) DO NOTHING`,
+      `INSERT INTO users (address) VALUES ($1::text)
+       ON CONFLICT (address) DO NOTHING`,
       [address.toLowerCase()]
     );
 
@@ -93,38 +89,25 @@ app.post("/api/auth", async (req, res) => {
   }
 });
 
-// upload IPFS
-app.post(
-  "/api/upload-media",
-  authenticate,
-  upload.single("media"),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "no file" });
-      }
-      if (!w3sClient) {
-        return res.status(500).json({ error: "web3.storage client not ready" });
-      }
+app.post("/api/upload-media", authenticate, upload.single("media"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "no file" });
+    if (!w3sClient) return res.status(500).json({ error: "web3.storage client not ready" });
 
-      const file = new File(
-        [req.file.buffer],
-        req.file.originalname,
-        { type: req.file.mimetype }
-      );
+    const file = new File([req.file.buffer], req.file.originalname, {
+      type: req.file.mimetype
+    });
 
-      const cid = await w3sClient.put([file], { wrapWithDirectory: false });
-      const mediaUrl = `https://${cid}.ipfs.dweb.link`;
+    const cid = await w3sClient.put([file], { wrapWithDirectory: false });
+    const mediaUrl = `https://${cid}.ipfs.dweb.link`;
 
-      return res.json({ success: true, media_url: mediaUrl });
-    } catch (err) {
-      console.error("upload error:", err);
-      return res.status(500).json({ error: "ipfs upload failed" });
-    }
+    return res.json({ success: true, media_url: mediaUrl });
+  } catch (err) {
+    console.error("upload error:", err);
+    return res.status(500).json({ error: "ipfs upload failed" });
   }
-);
+});
 
-// listar posts
 app.get("/api/posts", async (req, res) => {
   try {
     const result = await query(
@@ -147,23 +130,19 @@ app.get("/api/posts", async (req, res) => {
   }
 });
 
-// criar post
 app.post("/api/posts", authenticate, async (req, res) => {
   try {
     const { address } = req.user;
     const { media_url, caption } = req.body;
-
     if (!media_url) {
       return res.status(400).json({ error: "media_url is required" });
     }
-
     const result = await query(
       `INSERT INTO posts (user_address, media_url, caption)
        VALUES ($1::text, $2::text, $3::text)
        RETURNING id, user_address AS address, media_url, caption, created_at`,
       [address, media_url, caption || null]
     );
-
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("create post error:", err);
@@ -171,32 +150,6 @@ app.post("/api/posts", authenticate, async (req, res) => {
   }
 });
 
-// deletar post
-app.delete("/api/posts/:id", authenticate, async (req, res) => {
-  try {
-    const { address } = req.user;
-    const { id } = req.params;
-
-    const check = await query(
-      `SELECT user_address FROM posts WHERE id = $1::int`,
-      [id]
-    );
-    if (check.rows.length === 0) {
-      return res.status(404).json({ error: "not found" });
-    }
-    if (check.rows[0].user_address !== address) {
-      return res.status(403).json({ error: "not allowed" });
-    }
-
-    await query(`DELETE FROM posts WHERE id = $1::int`, [id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("delete:", err);
-    res.status(500).json({ error: "failed to delete" });
-  }
-});
-
-// perfil
 app.get("/api/profile/me", authenticate, async (req, res) => {
   try {
     const { address } = req.user;
@@ -208,7 +161,7 @@ app.get("/api/profile/me", authenticate, async (req, res) => {
     if (result.rows.length === 0) {
       return res.json({ address });
     }
-    return res.json(result.rows[0]);
+    res.json(result.rows[0]);
   } catch (err) {
     console.error("profile:", err);
     res.status(500).json({ error: "failed to fetch profile" });
@@ -219,7 +172,6 @@ app.put("/api/profile", authenticate, async (req, res) => {
   try {
     const { address } = req.user;
     const { username, bio, avatar_url } = req.body;
-
     await query(
       `UPDATE users
        SET username = $1::text,
@@ -228,7 +180,6 @@ app.put("/api/profile", authenticate, async (req, res) => {
        WHERE address = $4::text`,
       [username || null, bio || null, avatar_url || null, address]
     );
-
     res.json({ ok: true });
   } catch (err) {
     console.error("update profile:", err);
@@ -236,12 +187,11 @@ app.put("/api/profile", authenticate, async (req, res) => {
   }
 });
 
-// health
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// fallback para SPA
+// fallback
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
