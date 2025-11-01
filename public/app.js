@@ -1,9 +1,7 @@
-// estado
 let jwtToken = null;
 let currentAddress = null;
 let cfDeliveryUrl = "";
 
-// elementos
 const feedEl = document.getElementById("feed-posts");
 const myPostsEl = document.getElementById("my-posts");
 const walletAddressEl = document.getElementById("wallet-address");
@@ -14,13 +12,18 @@ const btnConnect = document.getElementById("btn-connect");
 const cancelUpload = document.getElementById("cancel-upload");
 const doUpload = document.getElementById("do-upload");
 const uploadStatus = document.getElementById("upload-status");
+
 const profileUsernameEl = document.getElementById("profile-username");
 const profileBioEl = document.getElementById("profile-bio");
 const profileAvatarEl = document.getElementById("profile-avatar");
 const profileSaveBtn = document.getElementById("profile-save");
 const profileSaveStatus = document.getElementById("profile-save-status");
 
-// navegação
+const avatarBtn = document.getElementById("avatar-upload-btn");
+const avatarFile = document.getElementById("avatar-file");
+const avatarPreview = document.getElementById("avatar-preview");
+const avatarUploadStatus = document.getElementById("avatar-upload-status");
+
 document.querySelectorAll(".nav-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
@@ -34,7 +37,6 @@ document.querySelectorAll(".nav-btn").forEach(btn => {
   });
 });
 
-// abrir modal de upload
 btnUpload.addEventListener("click", () => {
   if (!jwtToken) {
     alert("Connect wallet first");
@@ -42,20 +44,17 @@ btnUpload.addEventListener("click", () => {
   }
   uploadModal.classList.remove("hidden");
 });
-
-// fechar modal
 cancelUpload.addEventListener("click", () => {
   uploadModal.classList.add("hidden");
   uploadStatus.textContent = "";
 });
 
-// connect wallet
 btnConnect.addEventListener("click", async () => {
   await connectWallet();
 });
 
 function shortAddr(a) {
-  return a.slice(0, 6) + "..." + a.slice(-4);
+  return a.slice(0,6) + "..." + a.slice(-4);
 }
 
 async function connectWallet() {
@@ -64,9 +63,7 @@ async function connectWallet() {
     return;
   }
   try {
-    const accounts = await window.ethereum.request({
-      method: "eth_requestAccounts"
-    });
+    const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
     const address = accounts[0];
 
     let chainId = await window.ethereum.request({ method: "eth_chainId" });
@@ -77,8 +74,7 @@ async function connectWallet() {
           params: [{ chainId: "0x171" }]
         });
       } catch (e) {
-        alert("Add PulseChain (chainId 369) in Metamask and try again");
-        console.error(e);
+        alert("Add PulseChain (369) in Metamask and try again");
         return;
       }
     }
@@ -103,17 +99,16 @@ async function connectWallet() {
     const data = await verifyRes.json();
     if (!data.token) {
       alert("Auth failed");
-      console.error(data);
       return;
     }
-
     jwtToken = data.token;
+
     await loadCfConfig();
     await loadMyProfile();
     await loadFeed();
   } catch (err) {
-    console.error("connectWallet error", err);
-    alert(err.message || "Wallet error");
+    console.error(err);
+    alert(err.message || "wallet error");
   }
 }
 
@@ -132,6 +127,11 @@ async function loadMyProfile() {
   profileUsernameEl.value = d.username || "";
   profileBioEl.value = d.bio || "";
   profileAvatarEl.value = d.avatar_url || "";
+  if (d.avatar_url) {
+    avatarPreview.style.backgroundImage = `url('${d.avatar_url}')`;
+  } else {
+    avatarPreview.style.backgroundImage = "none";
+  }
 }
 
 profileSaveBtn.addEventListener("click", async () => {
@@ -157,6 +157,70 @@ profileSaveBtn.addEventListener("click", async () => {
     loadFeed();
   } else {
     profileSaveStatus.textContent = "Error";
+  }
+});
+
+avatarBtn.addEventListener("click", () => {
+  if (!jwtToken) {
+    alert("Connect wallet first");
+    return;
+  }
+  avatarFile.click();
+});
+
+avatarFile.addEventListener("change", async () => {
+  if (!avatarFile.files.length) return;
+  const file = avatarFile.files[0];
+  avatarUploadStatus.textContent = "Getting upload URL...";
+  const urlRes = await fetch("/api/cf/image-url", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + jwtToken }
+  });
+  const urlData = await urlRes.json();
+  if (!urlData.uploadURL) {
+    avatarUploadStatus.textContent = "Cloudflare not configured";
+    return;
+  }
+  const fd = new FormData();
+  fd.append("file", file);
+  const upRes = await fetch(urlData.uploadURL, {
+    method: "POST",
+    body: fd
+  });
+  const upData = await upRes.json();
+  if (!upData.success) {
+    avatarUploadStatus.textContent = "Upload failed";
+    return;
+  }
+  let avatarUrl;
+  if (cfDeliveryUrl) {
+    avatarUrl = cfDeliveryUrl.replace(/\/$/, "") + "/" + upData.result.id + "/public";
+  } else if (upData.result.variants && upData.result.variants.length) {
+    avatarUrl = upData.result.variants[0];
+  } else {
+    avatarUploadStatus.textContent = "No public URL";
+    return;
+  }
+
+  const save = await fetch("/api/me", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + jwtToken
+    },
+    body: JSON.stringify({
+      username: profileUsernameEl.value,
+      bio: profileBioEl.value,
+      avatar_url: avatarUrl
+    })
+  });
+  if (save.ok) {
+    avatarPreview.style.backgroundImage = `url('${avatarUrl}')`;
+    profileAvatarEl.value = avatarUrl;
+    avatarUploadStatus.textContent = "Avatar updated";
+    loadFeed();
+  } else {
+    avatarUploadStatus.textContent = "Error saving avatar";
   }
 });
 
@@ -276,7 +340,6 @@ async function loadMyPosts() {
   });
 }
 
-// upload
 doUpload.addEventListener("click", async () => {
   if (!jwtToken) {
     alert("Connect wallet first");
@@ -293,9 +356,7 @@ doUpload.addEventListener("click", async () => {
 
   const urlRes = await fetch("/api/cf/image-url", {
     method: "POST",
-    headers: {
-      "Authorization": "Bearer " + jwtToken
-    }
+    headers: { "Authorization": "Bearer " + jwtToken }
   });
   const urlData = await urlRes.json();
   if (!urlData.uploadURL) {
@@ -351,6 +412,5 @@ doUpload.addEventListener("click", async () => {
   }
 });
 
-// feed inicial sem login
 loadFeed();
 
