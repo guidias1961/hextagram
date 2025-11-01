@@ -21,7 +21,6 @@ const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "hextagram-secret";
 
-// normaliza a base de entrega do Cloudflare
 const rawDelivery = process.env.CF_IMAGES_DELIVERY_URL || "";
 const CF_IMAGES_DELIVERY_BASE = rawDelivery
   .replace(/\/<image_id>.*$/i, "")
@@ -32,13 +31,12 @@ const CF_API_TOKEN = process.env.CF_API_TOKEN || "";
 app.use(express.static(path.join(__dirname, "public")));
 
 async function getOrCreateUser(address) {
-  const q = await pool.query("select * from users where address = $1", [
-    address.toLowerCase()
-  ]);
+  const lower = address.toLowerCase();
+  const q = await pool.query("select * from users where address = $1", [lower]);
   if (q.rows.length) return q.rows[0];
   const ins = await pool.query(
     "insert into users(address) values($1) returning *",
-    [address.toLowerCase()]
+    [lower]
   );
   return ins.rows[0];
 }
@@ -56,23 +54,23 @@ function authRequired(req, res, next) {
   }
 }
 
-// mostra config atual para o front
+// info de config pro front
 app.get("/api/cf/config", (req, res) => {
   res.json({
     configured: !!(CF_ACCOUNT_ID && CF_API_TOKEN),
-    accountId: CF_ACCOUNT_ID ? "ok" : null,
-    deliveryUrl: CF_IMAGES_DELIVERY_BASE || null
+    deliveryBase: CF_IMAGES_DELIVERY_BASE || null
   });
 });
 
-// gera upload-url no cloudflare
+// pega upload-url do cloudflare
 app.post("/api/cf/image-url", authRequired, async (req, res) => {
   if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
     return res.status(500).json({ error: "CF not configured" });
   }
   try {
+    // endpoint correto
     const cfRes = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/images/v2/direct-upload`,
+      `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/images/v2/direct_upload`,
       {
         method: "POST",
         headers: {
@@ -82,7 +80,6 @@ app.post("/api/cf/image-url", authRequired, async (req, res) => {
     );
     const data = await cfRes.json();
     if (!data.success) {
-      // loga no server do railway pra tu ver
       console.error("CF upload-url error:", JSON.stringify(data, null, 2));
       return res.status(500).json({
         error: "CF error",
@@ -91,7 +88,8 @@ app.post("/api/cf/image-url", authRequired, async (req, res) => {
     }
     return res.json({
       uploadURL: data.result.uploadURL,
-      id: data.result.id
+      id: data.result.id,
+      deliveryBase: CF_IMAGES_DELIVERY_BASE
     });
   } catch (e) {
     console.error("CF fetch error:", e);
@@ -99,21 +97,20 @@ app.post("/api/cf/image-url", authRequired, async (req, res) => {
   }
 });
 
-// auth
+// nonce
 app.get("/api/auth/nonce/:address", async (req, res) => {
   const addr = req.params.address.toLowerCase();
   const nonce = "hextagram-" + Math.floor(Math.random() * 1e9);
   await pool.query(
     `insert into wallet_nonces(address, nonce, updated_at)
      values($1,$2,now())
-     on conflict(address)
-     do update set nonce = excluded.nonce, updated_at = now()
-    `,
+     on conflict(address) do update set nonce = excluded.nonce, updated_at = now()`,
     [addr, nonce]
   );
   res.json({ nonce });
 });
 
+// verifica assinatura
 app.post("/api/auth/verify", async (req, res) => {
   const { address, signature } = req.body;
   if (!address || !signature) return res.status(400).json({ error: "missing data" });
@@ -133,6 +130,7 @@ app.post("/api/auth/verify", async (req, res) => {
   } catch {
     return res.status(400).json({ error: "invalid signature" });
   }
+
   if (recovered !== addr) return res.status(400).json({ error: "address mismatch" });
 
   await getOrCreateUser(addr);
@@ -141,7 +139,7 @@ app.post("/api/auth/verify", async (req, res) => {
   res.json({ token });
 });
 
-// profile
+// dados do usuário
 app.get("/api/me", authRequired, async (req, res) => {
   const addr = req.user.address;
   const q = await pool.query("select * from users where address = $1", [addr]);
@@ -152,6 +150,7 @@ app.get("/api/me", authRequired, async (req, res) => {
   res.json(q.rows[0]);
 });
 
+// salvar perfil
 app.post("/api/me", authRequired, async (req, res) => {
   const addr = req.user.address;
   const { username, bio, avatar_url } = req.body;
@@ -196,15 +195,16 @@ app.post("/api/posts", authRequired, async (req, res) => {
   res.json(ins.rows[0]);
 });
 
-// fallback
+// front
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// start
 initDb()
   .then(() => {
-    app.listen(PORT, () => console.log("Hextagram on " + PORT));
+    app.listen(PORT, () => {
+      console.log("Hextagram on " + PORT);
+    });
   })
   .catch((e) => {
     console.error("DB init error", e);

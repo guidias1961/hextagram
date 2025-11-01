@@ -1,25 +1,22 @@
 // db.js
 import pkg from "pg";
+import dotenv from "dotenv";
+dotenv.config();
 
 const { Pool } = pkg;
 
 const connectionString = process.env.DATABASE_URL;
-const useSSL =
-  process.env.DATABASE_SSL === "true" ||
-  process.env.DATABASE_SSL === "1" ||
-  process.env.DATABASE_SSL === "yes";
+if (!connectionString) {
+  console.error("DATABASE_URL não definido");
+  process.exit(1);
+}
 
 export const pool = new Pool({
   connectionString,
-  ssl: useSSL
-    ? {
-        rejectUnauthorized: false
-      }
-    : false
+  ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : false
 });
 
 export async function initDb() {
-  // users
   await pool.query(`
     create table if not exists users (
       id serial primary key,
@@ -31,16 +28,6 @@ export async function initDb() {
     );
   `);
 
-  // nonces login
-  await pool.query(`
-    create table if not exists wallet_nonces (
-      address text primary key,
-      nonce text not null,
-      updated_at timestamptz default now()
-    );
-  `);
-
-  // posts
   await pool.query(`
     create table if not exists posts (
       id serial primary key,
@@ -48,9 +35,15 @@ export async function initDb() {
       media_url text not null,
       media_type text,
       caption text,
-      likes_count int default 0,
-      comments_count int default 0,
       created_at timestamptz default now()
+    );
+  `);
+
+  await pool.query(`
+    create table if not exists wallet_nonces (
+      address text primary key,
+      nonce text not null,
+      updated_at timestamptz default now()
     );
   `);
 }
