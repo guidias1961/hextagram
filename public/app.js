@@ -1,6 +1,4 @@
 // ==================== app.js ====================
-// REMOVIDO: const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/dg2xpadhr/upload";
-// REMOVIDO: const CLOUDINARY_PRESET = "hextagram_unsigned";
 
 // Estado global
 let token = null;

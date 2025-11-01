@@ -1,38 +1,4 @@
 // ==================== server.js ====================
-// ==================== server.js (INÍCIO DO ARQUIVO) ====================
-import express from "express";
-import cors from "cors";
-import jwt from "jsonwebtoken";
-import { ethers } from "ethers";
-import { query, initDb } from "./db.js";
-import multer from "multer"; 
-import { Web3Storage } from 'web3.storage';
-
-// NOVAS IMPORTAÇÕES PARA CORRIGIR CAMINHOS ESTÁTICOS
-import path from 'path'; 
-import { fileURLToPath } from 'url';
-
-// Definição de __dirname para módulos ES
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-// ======================================================================
-
-const app = express();
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-
-// SERVIR ARQUIVOS ESTÁTICOS DE FORMA ROBUSTA
-app.use(express.static(path.join(__dirname, 'public')));
-
-
-const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret_key_2024";
-const W3S_TOKEN = process.env.W3S_TOKEN; // Nova variável de ambiente
-const PORT = process.env.PORT || 3000;
-
-// Configuração do Multer para armazenar o arquivo em memória
-// ... (o restante do arquivo server.js continua igual)
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
@@ -40,7 +6,6 @@ import { ethers } from "ethers";
 import { query, initDb } from "./db.js";
 // NOVAS IMPORTAÇÕES PARA UPLOAD
 import multer from "multer"; 
-// MUDANÇA AQUI: de @web3-storage/w3up para web3.storage
 import { Web3Storage } from 'web3.storage';
 
 const app = express();
@@ -48,7 +13,10 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// SERVIR ARQUIVOS ESTÁTICOS: Configuração simples e funcional
 app.use(express.static("public"));
+
 
 const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret_key_2024";
 const W3S_TOKEN = process.env.W3S_TOKEN; // Nova variável de ambiente
@@ -65,7 +33,6 @@ let w3sClient;
 if (W3S_TOKEN) {
     try {
         console.log('Initializing Web3Storage client...');
-        // MUDANÇA AQUI: Criamos a instância da classe com o token
         w3sClient = new Web3Storage({ token: W3S_TOKEN });
         console.log('✓ Web3Storage client initialized');
     } catch (error) {
@@ -156,7 +123,6 @@ app.post("/api/upload-media", authenticate, upload.single('media'), async (req, 
         const files = [new File([req.file.buffer], req.file.originalname, { type: req.file.mimetype })];
         
         // Faz o upload e a fixação (pinning) no Filecoin/IPFS
-        // MUDANÇA AQUI: O método para fazer o upload é client.put(files)
         const cid = await w3sClient.put(files);
         
         console.log(`✓ Upload W3S OK. CID: ${cid}`);
