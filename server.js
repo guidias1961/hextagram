@@ -23,9 +23,7 @@ app.use(express.json({ limit: "4mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 function genNonce() {
-  const r1 = Math.random().toString(36).substring(2);
-  const r2 = Date.now().toString(36);
-  return r1 + r2;
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
 function createJwt(address) {
@@ -51,9 +49,13 @@ async function authMiddleware(req, res, next) {
 app.get("/api/auth/nonce/:address", async (req, res) => {
   const address = req.params.address.toLowerCase();
   const nonce = genNonce();
-  const sql = "INSERT INTO users(address, nonce) VALUES($1,$2) ON CONFLICT(address) DO UPDATE SET nonce = EXCLUDED.nonce";
+  const sql = `
+    INSERT INTO users(address, nonce)
+    VALUES($1,$2)
+    ON CONFLICT(address) DO UPDATE SET nonce = EXCLUDED.nonce
+  `;
   await query(sql, [address, nonce]);
-  res.json({ nonce: nonce });
+  res.json({ nonce });
 });
 
 app.post("/api/auth/verify", async (req, res) => {
@@ -69,22 +71,26 @@ app.post("/api/auth/verify", async (req, res) => {
     return;
   }
   const nonce = dbRes.rows[0].nonce;
-  const message = "Hextagram login on PulseChain, nonce: " + nonce;
+  const msg = "Hextagram login on PulseChain, nonce: " + nonce;
+
   let recovered;
   try {
-    recovered = ethers.verifyMessage(message, signature).toLowerCase();
+    recovered = ethers.verifyMessage(msg, signature).toLowerCase();
   } catch (e) {
     res.status(400).json({ error: "invalid signature" });
     return;
   }
+
   if (recovered !== address) {
     res.status(400).json({ error: "address mismatch" });
     return;
   }
+
   const token = createJwt(address);
-  res.json({ token: token });
+  res.json({ token });
 });
 
+// Cloudflare config
 app.get("/api/cf/config", (req, res) => {
   res.json({
     deliveryUrl: process.env.CF_IMAGES_DELIVERY_URL || ""
@@ -98,25 +104,26 @@ app.post("/api/cf/image-url", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "cloudflare not configured" });
     return;
   }
-  try {
-    const r = await fetch("https://api.cloudflare.com/client/v4/accounts/" + accountId + "/images/v2/direct_upload", {
+  const r = await fetch(
+    "https://api.cloudflare.com/client/v4/accounts/" +
+      accountId +
+      "/images/v2/direct_upload",
+    {
       method: "POST",
       headers: {
         Authorization: "Bearer " + apiToken
       }
-    });
-    const data = await r.json();
-    if (!data.success) {
-      res.status(500).json({ error: "cloudflare error", details: data });
-      return;
     }
-    res.json({
-      uploadURL: data.result.uploadURL,
-      id: data.result.id
-    });
-  } catch (err) {
-    res.status(500).json({ error: "cloudflare fetch failed", details: err.message });
+  );
+  const data = await r.json();
+  if (!data.success) {
+    res.status(500).json({ error: "cloudflare error", details: data });
+    return;
   }
+  res.json({
+    uploadURL: data.result.uploadURL,
+    id: data.result.id
+  });
 });
 
 app.post("/api/posts", authMiddleware, async (req, res) => {
@@ -128,21 +135,34 @@ app.post("/api/posts", authMiddleware, async (req, res) => {
     return;
   }
   const user_address = req.user.address;
-  const sql = "INSERT INTO posts(user_address, media_url, media_type, caption) VALUES($1,$2,$3,$4) RETURNING *";
+  const sql = `
+    INSERT INTO posts(user_address, media_url, media_type, caption)
+    VALUES($1,$2,$3,$4)
+    RETURNING *
+  `;
   const result = await query(sql, [user_address, media_url, media_type, caption]);
   res.json(result.rows[0]);
 });
 
 app.get("/api/posts", async (req, res) => {
-  const sql =
-    "SELECT p.*, " +
-    "COALESCE(l.likes_count,0) AS likes_count, " +
-    "COALESCE(c.comments_count,0) AS comments_count " +
-    "FROM posts p " +
-    "LEFT JOIN (SELECT post_id, COUNT(*) AS likes_count FROM post_likes GROUP BY post_id) l ON l.post_id = p.id " +
-    "LEFT JOIN (SELECT post_id, COUNT(*) AS comments_count FROM post_comments GROUP BY post_id) c ON c.post_id = p.id " +
-    "ORDER BY p.created_at DESC " +
-    "LIMIT 100";
+  const sql = `
+    SELECT p.*,
+      COALESCE(l.likes_count,0) AS likes_count,
+      COALESCE(c.comments_count,0) AS comments_count
+    FROM posts p
+    LEFT JOIN (
+      SELECT post_id, COUNT(*) AS likes_count
+      FROM post_likes
+      GROUP BY post_id
+    ) l ON l.post_id = p.id
+    LEFT JOIN (
+      SELECT post_id, COUNT(*) AS comments_count
+      FROM post_comments
+      GROUP BY post_id
+    ) c ON c.post_id = p.id
+    ORDER BY p.created_at DESC
+    LIMIT 100
+  `;
   const result = await query(sql);
   res.json(result.rows);
 });
@@ -150,8 +170,10 @@ app.get("/api/posts", async (req, res) => {
 app.post("/api/posts/:id/like", authMiddleware, async (req, res) => {
   const postId = Number(req.params.id);
   const user_address = req.user.address;
-  const sql = "INSERT INTO post_likes(post_id, user_address) VALUES($1,$2) ON CONFLICT DO NOTHING";
-  await query(sql, [postId, user_address]);
+  await query(
+    "INSERT INTO post_likes(post_id, user_address) VALUES($1,$2) ON CONFLICT DO NOTHING",
+    [postId, user_address]
+  );
   res.json({ ok: true });
 });
 
@@ -163,15 +185,19 @@ app.post("/api/posts/:id/comment", authMiddleware, async (req, res) => {
     res.status(400).json({ error: "no content" });
     return;
   }
-  const sql = "INSERT INTO post_comments(post_id, user_address, content) VALUES($1,$2,$3) RETURNING *";
-  const result = await query(sql, [postId, user_address, content]);
+  const result = await query(
+    "INSERT INTO post_comments(post_id, user_address, content) VALUES($1,$2,$3) RETURNING *",
+    [postId, user_address, content]
+  );
   res.json(result.rows[0]);
 });
 
 app.get("/api/posts/:id/comments", async (req, res) => {
   const postId = Number(req.params.id);
-  const sql = "SELECT * FROM post_comments WHERE post_id = $1 ORDER BY created_at ASC";
-  const result = await query(sql, [postId]);
+  const result = await query(
+    "SELECT * FROM post_comments WHERE post_id = $1 ORDER BY created_at ASC",
+    [postId]
+  );
   res.json(result.rows);
 });
 
@@ -179,8 +205,8 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-initDb().then(() => {
-  app.listen(PORT, () => {
-    console.log("Hextagram running on port " + PORT);
-  });
+await initDb();
+app.listen(PORT, () => {
+  console.log("Hextagram running on port " + PORT);
 });
+
