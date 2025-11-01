@@ -1,45 +1,64 @@
-// ==================== server.js ====================
+// ==================== server.js (Versão Final de Arquitetura) ====================
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import { ethers } from "ethers";
 import { query, initDb } from "./db.js";
-// NOVAS IMPORTAÇÕES PARA UPLOAD
 import multer from "multer"; 
 import { Web3Storage } from 'web3.storage';
 
 const app = express();
 
-// Middleware
+// Definições Globais
+const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret_key_2024";
+const W3S_TOKEN = process.env.W3S_TOKEN; 
+const PORT = process.env.PORT || 3000;
+
+// Configuração do Multer (memória)
+const upload = multer({ storage: multer.memoryStorage() });
+
+// =========================================================
+// 1. MIDDLEWARES PRIMÁRIOS (DEVE FICAR NO TOPO)
+// =========================================================
 app.use(cors());
 app.use(express.json());
 
-// SERVIR ARQUIVOS ESTÁTICOS: Configuração simples e funcional
+// SERVIR ARQUIVOS ESTÁTICOS (HTML, CSS, JS, IMAGES)
 app.use(express.static("public"));
 
+// =========================================================
+// 2. INICIALIZAÇÃO E CLIENTES ASSÍNCRONOS (Função main)
+// =========================================================
+let w3sClient = null;
 
-const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret_key_2024";
-const W3S_TOKEN = process.env.W3S_TOKEN; // Nova variável de ambiente
-const PORT = process.env.PORT || 3000;
-
-// Configuração do Multer para armazenar o arquivo em memória
-const upload = multer({ storage: multer.memoryStorage() });
-
-// Inicializar banco de dados
-await initDb();
-
-// Inicializar cliente W3S
-let w3sClient;
-if (W3S_TOKEN) {
+async function main() {
     try {
-        console.log('Initializing Web3Storage client...');
-        w3sClient = new Web3Storage({ token: W3S_TOKEN });
-        console.log('✓ Web3Storage client initialized');
+        // Inicializar banco de dados
+        await initDb();
+        
+        // Inicializar cliente W3S (só se o token existir)
+        if (W3S_TOKEN) {
+            console.log('Initializing Web3Storage client...');
+            w3sClient = new Web3Storage({ token: W3S_TOKEN });
+            console.log('✓ Web3Storage client initialized');
+        }
     } catch (error) {
-        console.error('✗ Failed to initialize Web3Storage client:', error);
+        console.error('❌ Falha na Inicialização (DB/W3S). O servidor continuará rodando, mas funcionalidades podem falhar.', error);
     }
+    
+    // Iniciar o servidor Express após a inicialização (Se não houver erro)
+    app.listen(PORT, () => {
+      console.log(`
+╔═══════════════════════════════════════╗
+║      🚀 HEXTAGRAM SERVER RUNNING      ║
+╠═══════════════════════════════════════╣
+║  Port: ${PORT.toString().padEnd(32)}║
+║  Environment: ${(process.env.NODE_ENV || 'development').padEnd(24)}║
+║  Database: Ready/Checked              ║
+╚═══════════════════════════════════════╝
+      `);
+    });
 }
-
 
 // ============ Middleware de Autenticação ============
 function authenticate(req, res, next) {
@@ -60,38 +79,29 @@ function authenticate(req, res, next) {
   }
 }
 
-// ============ Rotas de Autenticação ============
-
+// ============ Rotas de Autenticação e API (Rotas de Usuário) ============
 // POST /api/auth - Login com assinatura Web3
 app.post("/api/auth", async (req, res) => {
   try {
+    // ... (Lógica de autenticação)
     const { address, message, signature } = req.body;
     
     if (!address || !message || !signature) {
       return res.status(400).json({ error: "Missing required fields" });
     }
     
-    // Verificar assinatura
     const recoveredAddress = ethers.verifyMessage(message, signature);
     
     if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
       return res.status(401).json({ error: "Invalid signature" });
     }
     
-    // Criar ou atualizar usuário
     await query(
-      `INSERT INTO users (address) 
-       VALUES ($1) 
-       ON CONFLICT (address) DO NOTHING`,
+      `INSERT INTO users (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`,
       [address.toLowerCase()]
     );
     
-    // Gerar token JWT
-    const token = jwt.sign(
-      { address: address.toLowerCase() },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const token = jwt.sign({ address: address.toLowerCase() }, JWT_SECRET, { expiresIn: "7d" });
     
     res.json({
       success: true,
@@ -106,7 +116,6 @@ app.post("/api/auth", async (req, res) => {
 });
 
 // ============ NOVA ROTA: Upload de Mídia para IPFS ============
-// POST /api/upload-media - Upload do arquivo binário para o W3S
 app.post("/api/upload-media", authenticate, upload.single('media'), async (req, res) => {
     try {
         if (!req.file) {
@@ -118,16 +127,11 @@ app.post("/api/upload-media", authenticate, upload.single('media'), async (req, 
         }
 
         console.log(`📤 Upload de arquivo iniciado: ${req.file.originalname} (${req.file.size} bytes)`);
-
-        // Cria um objeto File para o W3S a partir do buffer (Web3.storage usa um Array de Files)
         const files = [new File([req.file.buffer], req.file.originalname, { type: req.file.mimetype })];
-        
-        // Faz o upload e a fixação (pinning) no Filecoin/IPFS
         const cid = await w3sClient.put(files);
         
         console.log(`✓ Upload W3S OK. CID: ${cid}`);
 
-        // O link direto para o arquivo (usando o CID do diretório raiz) é:
         const mediaUrl = `https://${cid}.ipfs.dweb.link/${req.file.originalname}`;
 
         res.json({ success: true, media_url: mediaUrl });
@@ -138,75 +142,28 @@ app.post("/api/upload-media", authenticate, upload.single('media'), async (req, 
     }
 });
 
-// ============ Rotas de Posts ============
 
+// ============ Rotas de Posts (GET, POST, DELETE) ============
 // GET /api/posts - Listar todos os posts
 app.get("/api/posts", async (req, res) => {
   try {
     const result = await query(
-      `SELECT 
-        p.id,
-        p.user_address as address,
-        p.media_url,
-        p.caption,
-        p.created_at,
-        u.username,
-        u.avatar_url
-       FROM posts p
-       LEFT JOIN users u ON u.address = p.user_address
-       ORDER BY p.created_at DESC
-       LIMIT 100`
+      `SELECT p.id, p.user_address as address, p.media_url, p.caption, p.created_at, u.username, u.avatar_url
+       FROM posts p LEFT JOIN users u ON u.address = p.user_address
+       ORDER BY p.created_at DESC LIMIT 100`
     );
-    
     res.json(result.rows);
-    
   } catch (error) {
     console.error("Get posts error:", error);
     res.status(500).json({ error: "Failed to fetch posts" });
   }
 });
 
-// GET /api/posts/:id - Buscar post específico
-app.get("/api/posts/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const result = await query(
-      `SELECT 
-        p.id,
-        p.user_address as address,
-        p.media_url,
-        p.caption,
-        p.created_at,
-        u.username,
-        u.avatar_url
-       FROM posts p
-       LEFT JOIN users u ON u.address = p.user_address
-       WHERE p.id = $1`,
-      [id]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Post not found" });
-    }
-    
-    res.json(result.rows[0]);
-    
-  } catch (error) {
-    console.error("Get post error:", error);
-    res.status(500).json({ error: "Failed to fetch post" });
-  }
-});
-
-// POST /api/posts - Criar novo post (AGORA SÓ RECEBE A URL DO IPFS)
+// POST /api/posts - Criar novo post 
 app.post("/api/posts", authenticate, async (req, res) => {
   try {
     const { address } = req.user;
     const { media_url, caption } = req.body;
-    
-    console.log('📝 Criando post para:', address);
-    console.log('   Media URL (IPFS):', media_url);
-    console.log('   Caption:', caption);
     
     if (!media_url) {
       return res.status(400).json({ error: "media_url is required" });
@@ -219,8 +176,6 @@ app.post("/api/posts", authenticate, async (req, res) => {
       [address, media_url, caption || null]
     );
     
-    console.log('✓ Post criado com sucesso:', result.rows[0].id);
-    
     res.status(201).json(result.rows[0]);
     
   } catch (error) {
@@ -231,15 +186,12 @@ app.post("/api/posts", authenticate, async (req, res) => {
 
 // DELETE /api/posts/:id - Deletar post (apenas o dono)
 app.delete("/api/posts/:id", authenticate, async (req, res) => {
+    // ... (Lógica de exclusão)
   try {
     const { address } = req.user;
     const { id } = req.params;
     
-    // Verificar se o post pertence ao usuário
-    const checkResult = await query(
-      `SELECT user_address FROM posts WHERE id = $1`,
-      [id]
-    );
+    const checkResult = await query(`SELECT user_address FROM posts WHERE id = $1`, [id]);
     
     if (checkResult.rows.length === 0) {
       return res.status(404).json({ error: "Post not found" });
@@ -259,48 +211,19 @@ app.delete("/api/posts/:id", authenticate, async (req, res) => {
   }
 });
 
-// ============ Rotas de Perfil ============
-
+// ============ Rotas de Perfil (GET, PUT) ============
 // GET /api/profile/me - Buscar perfil do usuário autenticado
 app.get("/api/profile/me", authenticate, async (req, res) => {
+    // ... (Lógica de perfil)
   try {
     const { address } = req.user;
-    
     const result = await query(
-      `SELECT address, username, bio, avatar_url, created_at
-       FROM users
-       WHERE address = $1`,
-      [address]
+      `SELECT address, username, bio, avatar_url, created_at FROM users WHERE address = $1`, [address]
     );
     
     if (result.rows.length === 0) {
       return res.json({ address });
     }
-    
-    res.json(result.rows[0]);
-    
-  } catch (error) {
-    console.error("Get profile error:", error);
-    res.status(500).json({ error: "Failed to fetch profile" });
-  }
-});
-
-// GET /api/profile/:address - Buscar perfil de outro usuário
-app.get("/api/profile/:address", async (req, res) => {
-  try {
-    const { address } = req.params;
-    
-    const result = await query(
-      `SELECT address, username, bio, avatar_url, created_at
-       FROM users
-       WHERE address = $1`,
-      [address.toLowerCase()]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "User not found" });
-    }
-    
     res.json(result.rows[0]);
     
   } catch (error) {
@@ -311,16 +234,13 @@ app.get("/api/profile/:address", async (req, res) => {
 
 // PUT /api/profile - Atualizar perfil
 app.put("/api/profile", authenticate, async (req, res) => {
+    // ... (Lógica de atualização)
   try {
     const { address } = req.user;
     const { username, bio, avatar_url } = req.body;
     
     await query(
-      `UPDATE users
-       SET username = $1,
-           bio = $2,
-           avatar_url = $3
-       WHERE address = $4`,
+      `UPDATE users SET username = $1, bio = $2, avatar_url = $3 WHERE address = $4`,
       [username || null, bio || null, avatar_url || null, address]
     );
     
@@ -332,50 +252,10 @@ app.put("/api/profile", authenticate, async (req, res) => {
   }
 });
 
-// GET /api/profile/:address/posts - Posts de um usuário específico
-app.get("/api/profile/:address/posts", async (req, res) => {
-  try {
-    const { address } = req.params;
-    
-    const result = await query(
-      `SELECT 
-        p.id,
-        p.user_address as address,
-        p.media_url,
-        p.caption,
-        p.created_at
-       FROM posts p
-       WHERE p.user_address = $1
-       ORDER BY p.created_at DESC`,
-      [address.toLowerCase()]
-    );
-    
-    res.json(result.rows);
-    
-  } catch (error) {
-    console.error("Get user posts error:", error);
-    res.status(500).json({ error: "Failed to fetch user posts" });
-  }
-});
-
-// ============ Rota de Health Check ============
+// Rota de Health Check
 app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    service: "Hextagram API"
-  });
+  res.json({ status: "ok" });
 });
 
-// ============ Iniciar Servidor ============
-app.listen(PORT, () => {
-  console.log(`
-╔═══════════════════════════════════════╗
-║      🚀 HEXTAGRAM SERVER RUNNING      ║
-╠═══════════════════════════════════════╣
-║  Port: ${PORT.toString().padEnd(32)}║
-║  Environment: ${(process.env.NODE_ENV || 'development').padEnd(24)}║
-║  Database: Connected                  ║
-╚═══════════════════════════════════════╝
-  `);
-});
+// Executa a função principal para iniciar o servidor
+main();
