@@ -13,7 +13,7 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "25mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,7 +54,7 @@ function authRequired(req, res, next) {
   }
 }
 
-// info de config pro front
+// config pro front
 app.get("/api/cf/config", (req, res) => {
   res.json({
     configured: !!(CF_ACCOUNT_ID && CF_API_TOKEN),
@@ -62,13 +62,12 @@ app.get("/api/cf/config", (req, res) => {
   });
 });
 
-// pega upload-url do cloudflare
+// endpoint antigo (ainda deixo) só pega a URL de upload
 app.post("/api/cf/image-url", authRequired, async (req, res) => {
   if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
     return res.status(500).json({ error: "CF not configured" });
   }
   try {
-    // endpoint correto
     const cfRes = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/images/v2/direct_upload`,
       {
@@ -81,10 +80,7 @@ app.post("/api/cf/image-url", authRequired, async (req, res) => {
     const data = await cfRes.json();
     if (!data.success) {
       console.error("CF upload-url error:", JSON.stringify(data, null, 2));
-      return res.status(500).json({
-        error: "CF error",
-        cf: data
-      });
+      return res.status(500).json({ error: "CF error", cf: data });
     }
     return res.json({
       uploadURL: data.result.uploadURL,
@@ -97,7 +93,74 @@ app.post("/api/cf/image-url", authRequired, async (req, res) => {
   }
 });
 
-// nonce
+// NOVO: front manda o base64 e eu mesmo faço o upload no Cloudflare
+app.post("/api/upload-cf", authRequired, async (req, res) => {
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
+    return res.status(500).json({ error: "CF not configured" });
+  }
+  const { fileName, fileType, dataBase64, caption } = req.body;
+  if (!dataBase64) {
+    return res.status(400).json({ error: "missing file" });
+  }
+
+  try {
+    // 1. pega upload url
+    const cfRes = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/images/v2/direct_upload`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${CF_API_TOKEN}`
+        }
+      }
+    );
+    const cfJson = await cfRes.json();
+    if (!cfJson.success) {
+      console.error("CF upload-url error:", JSON.stringify(cfJson, null, 2));
+      return res.status(500).json({ error: "CF error on direct_upload", cf: cfJson });
+    }
+    const { uploadURL, id } = cfJson.result;
+
+    // 2. monta um FormData no servidor e faz o POST pro Cloudflare
+    const buffer = Buffer.from(dataBase64, "base64");
+    const blob = new Blob([buffer], { type: fileType || "application/octet-stream" });
+    const form = new FormData();
+    form.append("file", blob, fileName || "hextagram-file");
+
+    const upRes = await fetch(uploadURL, {
+      method: "POST",
+      body: form
+    });
+    const upJson = await upRes.json();
+    if (!upRes.ok || !upJson.success) {
+      console.error("CF real upload error:", upJson);
+      return res.status(500).json({ error: "CF real upload failed", cf: upJson });
+    }
+
+    // 3. grava post no banco
+    const finalUrl = `${CF_IMAGES_DELIVERY_BASE}/${id}/public`;
+    const addr = req.user.address;
+    const ins = await pool.query(
+      `
+      insert into posts(user_address, media_url, media_type, caption)
+      values($1,$2,$3,$4)
+      returning *
+      `,
+      [addr, finalUrl, fileType?.startsWith("video") ? "video" : "image", caption || null]
+    );
+
+    return res.json({
+      ok: true,
+      url: finalUrl,
+      post: ins.rows[0]
+    });
+  } catch (e) {
+    console.error("upload-cf error:", e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// auth
 app.get("/api/auth/nonce/:address", async (req, res) => {
   const addr = req.params.address.toLowerCase();
   const nonce = "hextagram-" + Math.floor(Math.random() * 1e9);
@@ -110,7 +173,6 @@ app.get("/api/auth/nonce/:address", async (req, res) => {
   res.json({ nonce });
 });
 
-// verifica assinatura
 app.post("/api/auth/verify", async (req, res) => {
   const { address, signature } = req.body;
   if (!address || !signature) return res.status(400).json({ error: "missing data" });
@@ -139,7 +201,7 @@ app.post("/api/auth/verify", async (req, res) => {
   res.json({ token });
 });
 
-// dados do usuário
+// user
 app.get("/api/me", authRequired, async (req, res) => {
   const addr = req.user.address;
   const q = await pool.query("select * from users where address = $1", [addr]);
@@ -150,7 +212,6 @@ app.get("/api/me", authRequired, async (req, res) => {
   res.json(q.rows[0]);
 });
 
-// salvar perfil
 app.post("/api/me", authRequired, async (req, res) => {
   const addr = req.user.address;
   const { username, bio, avatar_url } = req.body;

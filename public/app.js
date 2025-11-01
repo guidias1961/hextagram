@@ -1,12 +1,10 @@
-// app.js
+// public/app.js
 let jwtToken = null;
 let currentAddress = null;
-let cfDeliveryBase = null;
 
 const feedView = document.getElementById("feed-view");
 const profileView = document.getElementById("profile-view");
 const uploadView = document.getElementById("upload-view");
-
 const navFeed = document.getElementById("nav-feed");
 const navProfile = document.getElementById("nav-profile");
 const navUpload = document.getElementById("nav-upload");
@@ -14,27 +12,26 @@ const walletStatus = document.getElementById("wallet-status");
 const connectBtn = document.getElementById("connect-wallet");
 const uploadBtn = document.getElementById("upload-btn");
 const uploadStatus = document.getElementById("upload-status");
-
 const profileAddress = document.getElementById("profile-address");
 const profileUsername = document.getElementById("profile-username");
 const profileBio = document.getElementById("profile-bio");
-const saveProfileBtn = document.getElementById("save-profile");
-const profileSaveStatus = document.getElementById("profile-save-status");
 const profileAvatarFile = document.getElementById("profile-avatar-file");
 const profileAvatarImg = document.getElementById("profile-avatar-img");
+const saveProfileBtn = document.getElementById("save-profile");
+const profileSaveStatus = document.getElementById("profile-save-status");
 const myPosts = document.getElementById("my-posts");
 
-function showView(view) {
+function showView(name) {
   feedView.classList.add("hidden");
   profileView.classList.add("hidden");
   uploadView.classList.add("hidden");
   navFeed.classList.remove("active");
   navProfile.classList.remove("active");
   navUpload.classList.remove("active");
-  if (view === "feed") {
+  if (name === "feed") {
     feedView.classList.remove("hidden");
     navFeed.classList.add("active");
-  } else if (view === "profile") {
+  } else if (name === "profile") {
     profileView.classList.remove("hidden");
     navProfile.classList.add("active");
   } else {
@@ -65,7 +62,7 @@ navUpload.onclick = () => {
 
 async function connectWallet() {
   if (!window.ethereum) {
-    alert("Metamask não encontrada");
+    alert("Metamask not found");
     return;
   }
   try {
@@ -73,16 +70,14 @@ async function connectWallet() {
       method: "eth_requestAccounts"
     });
     const address = accounts[0];
-    // força pulsechain (369)
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: "0x171" }]
       });
     } catch (e) {
-      console.log("switch error", e);
+      console.log("switch chain error", e);
     }
-    // nonce
     const nonceRes = await fetch(`/api/auth/nonce/${address}`);
     const { nonce } = await nonceRes.json();
     const message = `Hextagram login on PulseChain, nonce: ${nonce}`;
@@ -95,23 +90,21 @@ async function connectWallet() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address, signature })
     });
-    const verifyData = await verifyRes.json();
+    const data = await verifyRes.json();
     if (!verifyRes.ok) {
-      alert("login error: " + (verifyData.error || "unknown"));
+      alert("login error: " + (data.error || "unknown"));
       return;
     }
-    jwtToken = verifyData.token;
+    jwtToken = data.token;
     currentAddress = address;
-    walletStatus.textContent =
-      address.slice(0, 6) + "..." + address.slice(address.length - 4);
+    walletStatus.textContent = address.slice(0, 6) + "..." + address.slice(-4);
     connectBtn.textContent = "Connected";
-    loadProfile(); // pré-carrega
+    loadProfile();
   } catch (e) {
     console.error(e);
     alert("wallet error");
   }
 }
-
 connectBtn.onclick = connectWallet;
 
 async function loadFeed() {
@@ -181,6 +174,7 @@ saveProfileBtn.onclick = async () => {
   }
 };
 
+// avatar via backend
 profileAvatarFile.onchange = async (e) => {
   if (!jwtToken) {
     alert("Connect wallet first");
@@ -188,96 +182,94 @@ profileAvatarFile.onchange = async (e) => {
   }
   const file = e.target.files[0];
   if (!file) return;
-  uploadStatus.textContent = "Uploading avatar...";
-  const urlRes = await fetch("/api/cf/image-url", {
-    method: "POST",
-    headers: { Authorization: "Bearer " + jwtToken }
-  });
-  const urlData = await urlRes.json();
-  if (!urlRes.ok) {
-    uploadStatus.textContent =
-      "CF avatar error: " + (urlData.error || "") + (urlData.cf ? " " + JSON.stringify(urlData.cf) : "");
-    return;
-  }
-  const formData = new FormData();
-  formData.append("file", file);
-  const upRes = await fetch(urlData.uploadURL, {
-    method: "POST",
-    body: formData
-  });
-  const upJson = await upRes.json();
-  if (!upRes.ok) {
-    uploadStatus.textContent = "CF avatar upload fail";
-    return;
-  }
-  const finalUrl = `${urlData.deliveryBase}/${urlData.id}/public`;
-  profileAvatarImg.src = finalUrl;
-  uploadStatus.textContent = "";
-};
 
-uploadBtn.addEventListener("click", async () => {
-  if (!jwtToken) {
-    alert("Connect wallet first");
-    return;
-  }
-  const fileInput = document.getElementById("media-file");
-  const caption = document.getElementById("caption").value;
-  if (!fileInput || !fileInput.files.length) {
-    alert("Select file");
-    return;
-  }
-  const file = fileInput.files[0];
-  uploadStatus.textContent = "Getting Cloudflare URL...";
+  const base64 = await fileToBase64(file);
+  const raw = base64.split(",")[1];
 
-  const urlRes = await fetch("/api/cf/image-url", {
-    method: "POST",
-    headers: { Authorization: "Bearer " + jwtToken }
-  });
-  const urlData = await urlRes.json();
-  if (!urlRes.ok) {
-    uploadStatus.textContent =
-      "Error: " + (urlData.error || "unknown") + (urlData.cf ? " " + JSON.stringify(urlData.cf) : "");
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append("file", file);
-  uploadStatus.textContent = "Uploading to Cloudflare...";
-
-  const upRes = await fetch(urlData.uploadURL, {
-    method: "POST",
-    body: formData
-  });
-  const upJson = await upRes.json();
-  if (!upRes.ok || !upJson.success) {
-    uploadStatus.textContent = "CF upload failed";
-    console.log(upJson);
-    return;
-  }
-
-  const finalUrl = `${urlData.deliveryBase}/${urlData.id}/public`;
-
-  const postRes = await fetch("/api/posts", {
+  const res = await fetch("/api/upload-cf", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: "Bearer " + jwtToken
     },
     body: JSON.stringify({
-      media_url: finalUrl,
-      media_type: file.type.startsWith("video") ? "video" : "image",
+      fileName: file.name,
+      fileType: file.type,
+      dataBase64: raw,
+      caption: null
+    })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    alert("avatar upload error: " + JSON.stringify(data));
+    return;
+  }
+  profileAvatarImg.src = data.url;
+  // salva no perfil
+  await fetch("/api/me", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + jwtToken
+    },
+    body: JSON.stringify({
+      username: profileUsername.value,
+      bio: profileBio.value,
+      avatar_url: data.url
+    })
+  });
+  loadFeed();
+};
+
+uploadBtn.onclick = async () => {
+  if (!jwtToken) {
+    alert("Connect wallet first");
+    return;
+  }
+  const fileInput = document.getElementById("media-file");
+  const caption = document.getElementById("caption").value;
+  const file = fileInput.files[0];
+  if (!file) {
+    alert("Select file");
+    return;
+  }
+  uploadStatus.textContent = "Uploading...";
+  const base64 = await fileToBase64(file);
+  const raw = base64.split(",")[1];
+
+  const res = await fetch("/api/upload-cf", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + jwtToken
+    },
+    body: JSON.stringify({
+      fileName: file.name,
+      fileType: file.type,
+      dataBase64: raw,
       caption
     })
   });
-  if (!postRes.ok) {
-    uploadStatus.textContent = "DB save failed";
+  const data = await res.json();
+  if (!res.ok) {
+    uploadStatus.textContent = "Error: " + (data.error || "upload failed");
+    console.log(data);
     return;
   }
   uploadStatus.textContent = "Uploaded";
   fileInput.value = "";
   document.getElementById("caption").value = "";
   loadFeed();
-});
+};
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (e) => reject(e);
+    reader.readAsDataURL(file);
+  });
+}
 
 loadFeed();
 
