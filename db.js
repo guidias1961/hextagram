@@ -1,26 +1,23 @@
 // db.js
 import pkg from "pg";
-import dotenv from "dotenv";
-dotenv.config();
 
 const { Pool } = pkg;
 
 const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  console.error("DATABASE_URL não definido");
-  process.exit(1);
-}
+const ssl =
+  process.env.DATABASE_SSL === "true"
+    ? { rejectUnauthorized: false }
+    : false;
 
 export const pool = new Pool({
   connectionString,
-  ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : false
+  ssl
 });
 
 export async function initDb() {
   await pool.query(`
     create table if not exists users (
-      id serial primary key,
-      address text unique not null,
+      address text primary key,
       username text,
       bio text,
       avatar_url text,
@@ -31,20 +28,17 @@ export async function initDb() {
   await pool.query(`
     create table if not exists posts (
       id serial primary key,
-      user_address text not null,
+      address text,
       media_url text not null,
-      media_type text,
       caption text,
-      created_at timestamptz default now()
+      created_at timestamptz default now(),
+      foreign key (address) references users(address) on delete set null
     );
   `);
+}
 
-  await pool.query(`
-    create table if not exists wallet_nonces (
-      address text primary key,
-      nonce text not null,
-      updated_at timestamptz default now()
-    );
-  `);
+export async function query(q, params) {
+  const res = await pool.query(q, params);
+  return res;
 }
 

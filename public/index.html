@@ -1,75 +1,75 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Hextagram</title>
+    <title>Hextagram for PulseChain</title>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <link rel="stylesheet" href="/styles.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js" integrity="sha512-bczpETfDRA4A+pkPjaxPzn24rj7vqpq1Y6O+Y00K4qg8FQKD8lwG8x1a9RsjKo6KukZjR4Jpzo9OAu1Wg8nVrg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
   </head>
   <body>
     <div id="app">
       <aside class="sidebar">
-        <div class="brand">
-          <div class="logo">H</div>
-          <div class="name">Hextagram</div>
+        <div class="logo">
+          <div class="logo-circle">H</div>
+          <div class="logo-text">Hextagram</div>
         </div>
-        <button id="nav-feed" class="nav-btn active">Feed</button>
-        <button id="nav-profile" class="nav-btn">Profile</button>
-        <button id="nav-upload" class="nav-btn">Upload</button>
+        <button class="nav-btn" data-view="feed">Feed</button>
+        <button class="nav-btn" data-view="profile">Profile</button>
+        <button class="nav-btn" data-view="upload">Upload</button>
         <div class="wallet-box">
-          <div id="wallet-status">Not connected</div>
+          <span id="wallet-label">Not connected</span>
           <button id="connect-wallet" class="connect-btn">Connect Wallet</button>
         </div>
       </aside>
       <main class="main">
         <header class="topbar">
-          <input id="search" placeholder="Search on Hextagram" />
-          <div class="pill">PulseChain</div>
+          <input id="search" class="search" placeholder="Search on Hextagram" />
+          <div class="pc-pill">PulseChain</div>
         </header>
-
-        <section class="stories" id="stories">
-          <div class="story">NPulse</div>
-          <div class="story">PX402</div>
-          <div class="story">HEX</div>
-          <div class="story">PLS</div>
-          <div class="story">PLSX</div>
-        </section>
-
-        <section id="feed-view" class="view"></section>
-
-        <section id="profile-view" class="view hidden">
-          <div class="profile-card">
-            <div class="profile-avatar">
-              <img id="profile-avatar-img" src="/default-avatar.png" alt="avatar" />
-              <input type="file" id="profile-avatar-file" accept="image/*" />
+        <div id="view-feed" class="view active">
+          <div class="stories">
+            <div class="story-pulse">NPulse</div>
+            <div class="story-pulse">PX402</div>
+            <div class="story-pulse">HEX</div>
+            <div class="story-pulse">PLS</div>
+            <div class="story-pulse">PLSX</div>
+          </div>
+          <div id="feed-list"></div>
+        </div>
+        <div id="view-profile" class="view">
+          <div class="profile-box">
+            <div class="profile-left">
+              <div class="avatar-wrap">
+                <img id="profile-avatar" src="/avatar-placeholder.png" alt="avatar" />
+                <input type="file" id="avatar-file" accept="image/*" style="display:none" />
+                <button id="avatar-upload-btn" class="small-btn">Change avatar</button>
+              </div>
+              <div class="address" id="profile-address"></div>
             </div>
-            <div class="profile-data">
-              <div id="profile-address" class="profile-address"></div>
-              <label>Username
-                <input id="profile-username" placeholder="ex. pulse.degen" />
-              </label>
-              <label>Bio
-                <textarea id="profile-bio" placeholder="write about you"></textarea>
-              </label>
-              <button id="save-profile" class="primary">Save profile</button>
-              <div id="profile-save-status" class="status"></div>
+            <div class="profile-right">
+              <label>Username</label>
+              <input id="profile-username" placeholder="ex. pulse.degen" />
+              <label>Bio</label>
+              <textarea id="profile-bio" placeholder="write about you"></textarea>
+              <button id="profile-save" class="primary-btn">Save profile</button>
             </div>
           </div>
-          <h2 class="section-title">My posts</h2>
-          <div id="my-posts" class="posts-grid"></div>
-        </section>
-
-        <section id="upload-view" class="view hidden">
-          <div class="upload-box">
+          <h3>My posts</h3>
+          <div id="my-posts"></div>
+        </div>
+        <div id="view-upload" class="view">
+          <div class="card">
             <h2>New post</h2>
-            <p>Upload direto para Cloudflare Images</p>
-            <input type="file" id="media-file" accept="image/*,video/*" />
-            <textarea id="caption" placeholder="Caption"></textarea>
-            <button id="upload-btn" class="primary">Upload</button>
+            <p>Upload direto para Cloudinary</p>
+            <label>Select image</label>
+            <input type="file" id="upload-file" accept="image/*,video/*" />
+            <label>Caption</label>
+            <textarea id="upload-caption"></textarea>
+            <button id="upload-btn" class="primary-btn">Upload</button>
             <div id="upload-status" class="status"></div>
           </div>
-        </section>
+        </div>
       </main>
     </div>
     <script src="/app.js"></script>
