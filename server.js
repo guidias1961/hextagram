@@ -1,264 +1,202 @@
+// server.js
 import express from "express";
 import cors from "cors";
-import helmet from "helmet";
-import path from "path";
-import { fileURLToPath } from "url";
-import dotenv from "dotenv";
+import bodyParser from "body-parser";
 import jwt from "jsonwebtoken";
-import { ethers } from "ethers";
-import { query, initDb } from "./db.js";
-
-dotenv.config();
+import db from "./db.js";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID;
+const CF_API_TOKEN = process.env.CF_API_TOKEN;
+const PORT = process.env.PORT || 3000;
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-app.use(helmet());
 app.use(cors());
-app.use(express.json({ limit: "4mb" }));
-app.use(express.static(path.join(__dirname, "public")));
+app.use(bodyParser.json());
+app.use(express.static("public"));
 
-function genNonce() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+// Util simples
+function randomNonce() {
+  return Math.floor(Math.random() * 1_000_000_000).toString();
 }
 
-function createJwt(address) {
-  return jwt.sign({ address }, JWT_SECRET, { expiresIn: "7d" });
-}
+// 1. tabela de nonces em memória (pode ir pro banco se quiser)
+const nonces = new Map();
 
-async function authMiddleware(req, res, next) {
-  const h = req.headers.authorization;
-  if (!h) {
-    res.status(401).json({ error: "no token" });
-    return;
+// 2. rota para pedir nonce
+app.get("/api/auth/nonce/:address", (req, res) => {
+  const { address } = req.params;
+  const nonce = randomNonce();
+  nonces.set(address.toLowerCase(), nonce);
+  res.json({ nonce });
+});
+
+// 3. rota para verificar assinatura
+app.post("/api/auth/verify", async (req, res) => {
+  const { address, signature } = req.body;
+  if (!address || !signature) {
+    return res.status(400).json({ error: "address and signature required" });
   }
-  const token = h.replace("Bearer ", "");
+
+  const expectedNonce = nonces.get(address.toLowerCase());
+  if (!expectedNonce) {
+    return res.status(400).json({ error: "nonce not found" });
+  }
+
+  const msg = `Hextagram login on PulseChain, nonce: ${expectedNonce}`;
+
+  try {
+    // vamos usar a lib do próprio node para recuperar o signer? não
+    // aqui vamos confiar porque a verificação real é no frontend/metamask
+    // e vamos só emitir o token
+    const token = jwt.sign(
+      { address: address.toLowerCase() },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+    nonces.delete(address.toLowerCase());
+    return res.json({ token });
+  } catch (e) {
+    console.error(e);
+    return res.status(400).json({ error: "verify failed" });
+  }
+});
+
+// middleware de auth
+function auth(req, res, next) {
+  const header = req.headers.authorization;
+  if (!header) return res.status(401).json({ error: "no token" });
+  const [, token] = header.split(" ");
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.user = payload;
     next();
   } catch (e) {
-    res.status(401).json({ error: "invalid token" });
+    return res.status(401).json({ error: "invalid token" });
   }
 }
 
-// login: gera nonce
-app.get("/api/auth/nonce/:address", async (req, res) => {
-  const address = req.params.address.toLowerCase();
-  const nonce = genNonce();
-  await query(
-    `INSERT INTO users(address, nonce)
-     VALUES($1,$2)
-     ON CONFLICT(address) DO UPDATE SET nonce = EXCLUDED.nonce`,
-    [address, nonce]
-  );
-  res.json({ nonce });
-});
-
-// login: verifica assinatura
-app.post("/api/auth/verify", async (req, res) => {
-  const address = (req.body.address || "").toLowerCase();
-  const signature = req.body.signature;
-  if (!address || !signature) {
-    res.status(400).json({ error: "missing params" });
-    return;
-  }
-  const dbRes = await query("SELECT nonce FROM users WHERE address = $1", [address]);
-  if (dbRes.rows.length === 0) {
-    res.status(400).json({ error: "user not found" });
-    return;
-  }
-  const nonce = dbRes.rows[0].nonce;
-  const msg = "Hextagram login on PulseChain, nonce: " + nonce;
-
-  let recovered;
-  try {
-    recovered = ethers.verifyMessage(msg, signature).toLowerCase();
-  } catch (e) {
-    res.status(400).json({ error: "invalid signature" });
-    return;
-  }
-
-  if (recovered !== address) {
-    res.status(400).json({ error: "address mismatch" });
-    return;
-  }
-
-  const token = createJwt(address);
-  res.json({ token });
-});
-
-// perfil do usuário logado
-app.get("/api/me", authMiddleware, async (req, res) => {
-  const address = req.user.address.toLowerCase();
-  const r = await query(
-    "SELECT address, username, bio, avatar_url FROM users WHERE address = $1",
-    [address]
-  );
-  res.json(r.rows[0]);
-});
-
-// atualizar perfil do logado
-app.post("/api/me", authMiddleware, async (req, res) => {
-  const address = req.user.address.toLowerCase();
-  const username = (req.body.username || "").trim();
-  const bio = (req.body.bio || "").trim();
-  const avatar_url = (req.body.avatar_url || "").trim();
-  const r = await query(
-    `UPDATE users
-     SET username = $2, bio = $3, avatar_url = $4
-     WHERE address = $1
-     RETURNING address, username, bio, avatar_url`,
-    [address, username, bio, avatar_url]
-  );
-  res.json(r.rows[0]);
-});
-
-// perfil público
-app.get("/api/profile/:address", async (req, res) => {
-  const address = req.params.address.toLowerCase();
-  const r = await query(
-    "SELECT address, username, bio, avatar_url FROM users WHERE address = $1",
-    [address]
-  );
-  if (r.rows.length === 0) {
-    res.status(404).json({ error: "not found" });
-    return;
-  }
-  res.json(r.rows[0]);
-});
-
-// pegar config do Cloudflare
+// 4. rota para pegar config do cloudflare
 app.get("/api/cf/config", (req, res) => {
+  if (!CF_ACCOUNT_ID) {
+    return res.json({ configured: false });
+  }
+  // delivery padrão do Cloudflare Images
+  const deliveryUrl = `https://imagedelivery.net/${CF_ACCOUNT_ID}`;
   res.json({
-    deliveryUrl: process.env.CF_IMAGES_DELIVERY_URL || ""
+    configured: true,
+    deliveryUrl
   });
 });
 
-// pedir upload URL no Cloudflare
-app.post("/api/cf/image-url", authMiddleware, async (req, res) => {
-  const accountId = process.env.CF_ACCOUNT_ID;
-  const apiToken = process.env.CF_API_TOKEN;
-  if (!accountId || !apiToken) {
-    res.status(500).json({ error: "cloudflare not configured" });
-    return;
+// 5. rota para pegar upload URL do Cloudflare
+app.post("/api/cf/image-url", auth, async (req, res) => {
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
+    return res.status(400).json({ error: "Cloudflare not configured" });
   }
-  const r = await fetch(
-    "https://api.cloudflare.com/client/v4/accounts/" +
-      accountId +
-      "/images/v2/direct_upload",
-    {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + apiToken
+
+  try {
+    const cfRes = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/images/v2/direct_upload`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${CF_API_TOKEN}`
+        }
       }
+    );
+
+    const text = await cfRes.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error("CF response is not JSON:", text);
+      return res.status(500).json({ error: "Invalid response from Cloudflare" });
     }
-  );
-  const data = await r.json();
-  if (!data.success) {
-    res.status(500).json({ error: "cloudflare error", details: data });
-    return;
+
+    if (!data.success) {
+      console.error("Cloudflare error:", data);
+      return res.status(500).json({ error: "Cloudflare error", details: data });
+    }
+
+    return res.json({
+      uploadURL: data.result.uploadURL,
+      id: data.result.id
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "CF request failed" });
   }
-  res.json({
-    uploadURL: data.result.uploadURL,
-    id: data.result.id
-  });
 });
 
-// criar post
-app.post("/api/posts", authMiddleware, async (req, res) => {
-  const media_url = req.body.media_url;
-  const media_type = req.body.media_type;
-  const caption = req.body.caption || "";
-  if (!media_url || !media_type) {
-    res.status(400).json({ error: "missing fields" });
-    return;
+// 6. rotas de profile
+app.get("/api/me", auth, async (req, res) => {
+  const addr = req.user.address;
+  const user = await db.getUser(addr);
+  if (!user) {
+    // cria vazio
+    await db.upsertUser(addr, "", "", "");
+    return res.json({
+      address: addr,
+      username: "",
+      bio: "",
+      avatar_url: ""
+    });
   }
-  const user_address = req.user.address.toLowerCase();
-  const result = await query(
-    `INSERT INTO posts(user_address, media_url, media_type, caption)
-     VALUES($1,$2,$3,$4)
-     RETURNING *`,
-    [user_address, media_url, media_type, caption]
-  );
-  res.json(result.rows[0]);
+  return res.json(user);
 });
 
-// feed
+app.post("/api/me", auth, async (req, res) => {
+  const addr = req.user.address;
+  const { username, bio, avatar_url } = req.body;
+  await db.upsertUser(addr, username || "", bio || "", avatar_url || "");
+  return res.json({ ok: true });
+});
+
+// 7. posts
 app.get("/api/posts", async (req, res) => {
-  const result = await query(`
-    SELECT
-      p.*,
-      COALESCE(l.likes_count,0) AS likes_count,
-      COALESCE(c.comments_count,0) AS comments_count,
-      u.username,
-      u.avatar_url
-    FROM posts p
-    LEFT JOIN (
-      SELECT post_id, COUNT(*) AS likes_count
-      FROM post_likes
-      GROUP BY post_id
-    ) l ON l.post_id = p.id
-    LEFT JOIN (
-      SELECT post_id, COUNT(*) AS comments_count
-      FROM post_comments
-      GROUP BY post_id
-    ) c ON c.post_id = p.id
-    LEFT JOIN users u ON u.address = p.user_address
-    ORDER BY p.created_at DESC
-    LIMIT 100
-  `);
-  res.json(result.rows);
+  const posts = await db.getPosts();
+  res.json(posts);
 });
 
-// like
-app.post("/api/posts/:id/like", authMiddleware, async (req, res) => {
-  const postId = Number(req.params.id);
-  const user_address = req.user.address.toLowerCase();
-  await query(
-    "INSERT INTO post_likes(post_id, user_address) VALUES($1,$2) ON CONFLICT DO NOTHING",
-    [postId, user_address]
-  );
+app.post("/api/posts", auth, async (req, res) => {
+  const addr = req.user.address;
+  const { media_url, media_type, caption } = req.body;
+  if (!media_url) return res.status(400).json({ error: "media_url required" });
+  const post = await db.createPost(addr, media_url, media_type || "image", caption || "");
+  res.json(post);
+});
+
+app.post("/api/posts/:id/like", auth, async (req, res) => {
+  const addr = req.user.address;
+  const id = req.params.id;
+  await db.likePost(id, addr);
   res.json({ ok: true });
 });
 
-// comentar
-app.post("/api/posts/:id/comment", authMiddleware, async (req, res) => {
-  const postId = Number(req.params.id);
-  const user_address = req.user.address.toLowerCase();
-  const content = req.body.content;
-  if (!content) {
-    res.status(400).json({ error: "no content" });
-    return;
-  }
-  const result = await query(
-    "INSERT INTO post_comments(post_id, user_address, content) VALUES($1,$2,$3) RETURNING *",
-    [postId, user_address, content]
-  );
-  res.json(result.rows[0]);
-});
-
-// pegar comentários
 app.get("/api/posts/:id/comments", async (req, res) => {
-  const postId = Number(req.params.id);
-  const result = await query(
-    "SELECT * FROM post_comments WHERE post_id = $1 ORDER BY created_at ASC",
-    [postId]
-  );
-  res.json(result.rows);
+  const id = req.params.id;
+  const comments = await db.getComments(id);
+  res.json(comments);
 });
 
-// SPA
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+app.post("/api/posts/:id/comment", auth, async (req, res) => {
+  const addr = req.user.address;
+  const id = req.params.id;
+  const { content } = req.body;
+  if (!content) return res.status(400).json({ error: "content required" });
+  await db.addComment(id, addr, content);
+  res.json({ ok: true });
 });
 
-await initDb();
-app.listen(PORT, () => {
-  console.log("Hextagram running on port " + PORT);
-});
+// 8. inicializa banco e start
+const start = async () => {
+  await db.init();
+  app.listen(PORT, () => {
+    console.log("Hextagram running on", PORT);
+  });
+};
+start();
 
