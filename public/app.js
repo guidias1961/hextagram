@@ -1,6 +1,4 @@
 // app.js
-// Hextagram frontend logic
-
 const API_BASE = '';
 
 let state = {
@@ -15,17 +13,17 @@ const els = {
   exploreBtn: document.getElementById('nav-explore'),
   createBtn: document.getElementById('nav-create'),
   profileBtn: document.getElementById('nav-profile'),
-  walletStatus: document.getElementById('wallet-status'),
-  walletBtn: document.getElementById('wallet-connect'),
+  walletStatus: document.getElementById('wallet-status') || document.getElementById('wallet-address'),
+  walletBtn: document.getElementById('wallet-connect') || document.getElementById('connect-wallet'),
   viewFeed: document.getElementById('view-feed'),
   viewExplore: document.getElementById('view-explore'),
-  viewCreate: document.getElementById('view-create'),
+  viewCreate: document.getElementById('view-create') || document.getElementById('view-upload'),
   viewProfile: document.getElementById('view-profile'),
   feedPosts: document.getElementById('feed-posts'),
-  createFile: document.getElementById('create-file'),
-  createCaption: document.getElementById('create-caption'),
-  createPreview: document.getElementById('create-preview'),
-  createSubmit: document.getElementById('create-submit'),
+  createFile: document.getElementById('create-file') || document.getElementById('file-input'),
+  createCaption: document.getElementById('create-caption') || document.getElementById('caption-input'),
+  createPreview: document.getElementById('create-preview') || document.getElementById('upload-preview'),
+  createSubmit: document.getElementById('create-submit') || document.getElementById('upload-btn'),
   profileBox: document.getElementById('profile-box')
 };
 
@@ -48,14 +46,11 @@ function loadSession() {
 function setView(name) {
   state.currentView = name;
   const all = [els.viewFeed, els.viewExplore, els.viewCreate, els.viewProfile];
-  all.forEach(v => {
-    if (v) v.style.display = 'none';
-  });
+  all.forEach(v => v && (v.style.display = 'none'));
   if (name === 'feed' && els.viewFeed) els.viewFeed.style.display = 'block';
   if (name === 'explore' && els.viewExplore) els.viewExplore.style.display = 'block';
   if (name === 'create' && els.viewCreate) els.viewCreate.style.display = 'block';
   if (name === 'profile' && els.viewProfile) els.viewProfile.style.display = 'block';
-
   if (name === 'feed') loadFeed();
   if (name === 'profile') loadProfile();
 }
@@ -67,13 +62,13 @@ async function connectWallet() {
       const addr = accounts[0];
       await simpleAuth(addr);
     } else {
-      const manual = prompt('Informe seu endereço (0x...)');
+      const manual = prompt('Informe seu endereço 0x');
       if (!manual) return;
       await simpleAuth(manual.trim());
     }
   } catch (err) {
-    alert('erro ao conectar wallet');
     console.error(err);
+    alert('erro ao conectar wallet');
   }
 }
 
@@ -99,7 +94,7 @@ async function simpleAuth(address) {
 function refreshWalletStatus() {
   if (!els.walletStatus) return;
   if (state.address) {
-    els.walletStatus.textContent = `Conectado ${state.address.slice(0, 6)}...${state.address.slice(-4)}`;
+    els.walletStatus.textContent = `${state.address.slice(0, 6)}...${state.address.slice(-4)}`;
   } else {
     els.walletStatus.textContent = 'Não conectado';
   }
@@ -109,11 +104,11 @@ async function loadFeed() {
   if (!els.feedPosts) return;
   els.feedPosts.innerHTML = '<p class="muted">Carregando...</p>';
   try {
-    const resp = await fetch(`${API_BASE}/api/posts`);
+    const resp = await fetch('/api/posts');
     const ct = resp.headers.get('content-type') || '';
     if (!ct.includes('application/json')) {
       const txt = await resp.text();
-      console.error('Resposta não JSON de /api/posts:', txt);
+      console.error('/api/posts retornou html', txt.slice(0, 200));
       els.feedPosts.innerHTML = '<p class="error">Erro ao carregar posts.</p>';
       return;
     }
@@ -141,17 +136,16 @@ function renderPost(post) {
 
   const mediaBox = document.createElement('div');
   mediaBox.className = 'post-media';
-
   const type = post.media_type || 'image';
+
   if (type === 'video') {
-    const video = document.createElement('video');
-    video.src = post.media_url;
-    video.controls = true;
-    mediaBox.appendChild(video);
+    const v = document.createElement('video');
+    v.src = post.media_url;
+    v.controls = true;
+    mediaBox.appendChild(v);
   } else {
     const img = document.createElement('img');
     img.src = post.media_url;
-    img.alt = post.caption || '';
     mediaBox.appendChild(img);
   }
 
@@ -172,13 +166,13 @@ async function loadProfile() {
     return;
   }
   try {
-    const resp = await fetch(`${API_BASE}/api/profile/me`, {
+    const resp = await fetch('/api/profile/me', {
       headers: { Authorization: `Bearer ${state.token}` }
     });
     const ct = resp.headers.get('content-type') || '';
     if (!ct.includes('application/json')) {
-      const t = await resp.text();
-      console.error('profile não json', t);
+      const txt = await resp.text();
+      console.error('/api/profile/me html', txt.slice(0, 200));
       if (els.profileBox) els.profileBox.innerHTML = '<p>Erro ao carregar perfil</p>';
       return;
     }
@@ -198,13 +192,15 @@ async function loadProfile() {
 }
 
 function handleFileChange() {
-  const file = els.createFile.files[0];
+  const file = els.createFile && els.createFile.files[0];
   if (!file) {
-    els.createPreview.innerHTML = '';
+    if (els.createPreview) els.createPreview.innerHTML = '';
     return;
   }
   const url = URL.createObjectURL(file);
-  els.createPreview.innerHTML = `<img src="${url}" alt="preview" class="create-preview-img" />`;
+  if (els.createPreview) {
+    els.createPreview.innerHTML = `<img src="${url}" class="create-preview-img" />`;
+  }
 }
 
 async function handleCreateSubmit() {
@@ -213,35 +209,34 @@ async function handleCreateSubmit() {
     alert('conecte a wallet primeiro');
     return;
   }
-  const file = els.createFile.files[0];
+  const file = els.createFile && els.createFile.files[0];
   if (!file) {
     alert('selecione uma imagem');
     return;
   }
   state.uploading = true;
-  els.createSubmit.disabled = true;
-  els.createSubmit.textContent = 'Enviando...';
+  if (els.createSubmit) {
+    els.createSubmit.disabled = true;
+    els.createSubmit.textContent = 'Enviando...';
+  }
 
   try {
-    // 1. upload
     const fd = new FormData();
     fd.append('media', file);
-    const up = await fetch(`${API_BASE}/api/upload-media`, {
+    const up = await fetch('/api/upload-media', {
       method: 'POST',
       headers: { Authorization: `Bearer ${state.token}` },
       body: fd
     });
-    const ct = up.headers.get('content-type') || '';
-    const upData = ct.includes('application/json') ? await up.json() : {};
-    if (!upData.success || !upData.media_url) {
-      console.error('upload falhou', upData);
+    const upData = await up.json();
+    if (!up.ok || !upData.media_url) {
+      console.error('upload fail', upData);
       alert('upload falhou');
       return;
     }
 
-    // 2. criar post
-    const caption = els.createCaption.value.trim();
-    const postResp = await fetch(`${API_BASE}/api/posts`, {
+    const caption = els.createCaption ? els.createCaption.value.trim() : '';
+    const postResp = await fetch('/api/posts', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${state.token}`,
@@ -253,27 +248,27 @@ async function handleCreateSubmit() {
         media_type: upData.media_type || 'image'
       })
     });
-    const postCt = postResp.headers.get('content-type') || '';
-    const postData = postCt.includes('application/json') ? await postResp.json() : null;
+    const postData = await postResp.json();
     if (!postResp.ok) {
-      console.error('erro ao criar post', postData);
+      console.error('post fail', postData);
       alert('erro ao criar post');
       return;
     }
 
-    // reset
-    els.createFile.value = '';
-    els.createCaption.value = '';
-    els.createPreview.innerHTML = '';
-    alert('post publicado');
+    if (els.createFile) els.createFile.value = '';
+    if (els.createCaption) els.createCaption.value = '';
+    if (els.createPreview) els.createPreview.innerHTML = '';
+
     setView('feed');
   } catch (err) {
     console.error(err);
     alert('erro ao publicar');
   } finally {
     state.uploading = false;
-    els.createSubmit.disabled = false;
-    els.createSubmit.textContent = 'Publicar';
+    if (els.createSubmit) {
+      els.createSubmit.disabled = false;
+      els.createSubmit.textContent = 'Publicar';
+    }
   }
 }
 
