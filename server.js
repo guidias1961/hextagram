@@ -1,4 +1,38 @@
 // ==================== server.js ====================
+// ==================== server.js (INÍCIO DO ARQUIVO) ====================
+import express from "express";
+import cors from "cors";
+import jwt from "jsonwebtoken";
+import { ethers } from "ethers";
+import { query, initDb } from "./db.js";
+import multer from "multer"; 
+import { Web3Storage } from 'web3.storage';
+
+// NOVAS IMPORTAÇÕES PARA CORRIGIR CAMINHOS ESTÁTICOS
+import path from 'path'; 
+import { fileURLToPath } from 'url';
+
+// Definição de __dirname para módulos ES
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+// ======================================================================
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// SERVIR ARQUIVOS ESTÁTICOS DE FORMA ROBUSTA
+app.use(express.static(path.join(__dirname, 'public')));
+
+
+const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret_key_2024";
+const W3S_TOKEN = process.env.W3S_TOKEN; // Nova variável de ambiente
+const PORT = process.env.PORT || 3000;
+
+// Configuração do Multer para armazenar o arquivo em memória
+// ... (o restante do arquivo server.js continua igual)
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
