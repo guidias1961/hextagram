@@ -1,4 +1,4 @@
-// public/app.js
+// public/app.js sem ethers
 
 let token = null;
 let currentAddress = null;
@@ -42,32 +42,42 @@ function setupWallet() {
 
 async function connectWallet() {
   if (!window.ethereum) {
-    alert("MetaMask/Brave wallet não encontrada");
+    alert("MetaMask não encontrada");
     return;
   }
 
   try {
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const accounts = await provider.send("eth_requestAccounts", []);
+    // pedir conta
+    const accounts = await window.ethereum.request({
+      method: "eth_requestAccounts"
+    });
     const address = accounts[0];
 
-    // tenta mudar para pulsechain, se falhar ignora
+    // tentar trocar para pulsechain, se não der segue
     try {
-      await provider.send("wallet_switchEthereumChain", [{ chainId: "0x171" }]);
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: "0x171" }]
+      });
     } catch (err) {
-      console.log("não trocou rede, seguindo mesmo assim");
+      console.log("não trocou para 0x171, seguindo", err.message);
     }
 
-    const signer = await provider.getSigner();
+    // construir mensagem
     const message = `Login to Hextagram\n${new Date().toISOString()}\n${address}`;
 
+    // tentar assinar via personal_sign
     let signature = null;
     try {
-      signature = await signer.signMessage(message);
+      signature = await window.ethereum.request({
+        method: "personal_sign",
+        params: [message, address]
+      });
     } catch (err) {
-      console.warn("signMessage falhou, vou usar fallback simples:", err);
+      console.log("personal_sign falhou, vou usar login simples");
     }
 
+    // mandar para o backend
     let resp;
     if (signature) {
       resp = await fetch("/api/auth", {
@@ -85,7 +95,6 @@ async function connectWallet() {
 
     const data = await resp.json();
     if (!resp.ok) {
-      console.error("auth error resp:", data);
       alert(data.error || "erro ao autenticar");
       return;
     }
