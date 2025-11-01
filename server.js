@@ -148,6 +148,10 @@ app.post("/api/posts", authenticate, async (req, res) => {
     const { address } = req.user;
     const { media_url, caption } = req.body;
     
+    console.log('📝 Criando post para:', address);
+    console.log('   Media URL:', media_url);
+    console.log('   Caption:', caption);
+    
     if (!media_url) {
       return res.status(400).json({ error: "media_url is required" });
     }
@@ -159,11 +163,13 @@ app.post("/api/posts", authenticate, async (req, res) => {
       [address, media_url, caption || null]
     );
     
+    console.log('✓ Post criado com sucesso:', result.rows[0].id);
+    
     res.status(201).json(result.rows[0]);
     
   } catch (error) {
-    console.error("Create post error:", error);
-    res.status(500).json({ error: "Failed to create post" });
+    console.error("❌ Erro ao criar post:", error);
+    res.status(500).json({ error: "Failed to create post", details: error.message });
   }
 });
 
@@ -317,4 +323,3 @@ app.listen(PORT, () => {
 ╚═══════════════════════════════════════╝
   `);
 });
-
