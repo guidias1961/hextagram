@@ -1,141 +1,129 @@
 // server.js
 import express from "express";
 import cors from "cors";
-import path from "path";
-import { fileURLToPath } from "url";
 import jwt from "jsonwebtoken";
+import { query } from "./db.js";
 import { ethers } from "ethers";
-import { initDb, query } from "./db.js";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || "hextagram-secret";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 app.use(cors());
-app.use(express.json({ limit: "15mb" }));
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.json());
+app.use(express.static("public"));
 
-await initDb();
+const JWT_SECRET = process.env.JWT_SECRET || "ermano";
 
-// só pra tu ver que o backend está vivo
-app.get("/ping", (req, res) => res.json({ ok: true }));
-
-// login por assinatura
-app.post("/api/auth", async (req, res) => {
-  try {
-    const { address, message, signature } = req.body;
-    if (!address || !message || !signature) {
-      return res.status(400).json({ error: "missing params" });
-    }
-
-    const recovered = ethers.utils.verifyMessage(message, signature);
-    if (recovered.toLowerCase() !== address.toLowerCase()) {
-      return res.status(401).json({ error: "signature invalid" });
-    }
-
-    const addr = address.toLowerCase();
-
-    await query(
-      `insert into users (address) values ($1)
-       on conflict (address) do nothing`,
-      [addr]
-    );
-
-    const token = jwt.sign({ address: addr }, JWT_SECRET, { expiresIn: "7d" });
-    res.json({ token, address: addr });
-  } catch (err) {
-    console.error("auth error", err);
-    res.status(500).json({ error: "auth failed" });
-  }
-});
-
+// middleware pra pegar o usuário do token
 function auth(req, res, next) {
   const h = req.headers.authorization;
-  if (!h) return res.status(401).json({ error: "no token" });
+  if (!h) return res.status(401).json({ error: "no auth" });
   const token = h.split(" ")[1];
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
     next();
   } catch (e) {
     return res.status(401).json({ error: "invalid token" });
   }
 }
 
-// pegar perfil
-app.get("/api/profile/me", auth, async (req, res) => {
-  const addr = req.user.address;
-  const r = await query(
-    "select address, username, bio, avatar_url from users where address=$1",
-    [addr]
-  );
-  res.json(r.rows[0] || null);
-});
-
-// atualizar perfil
-app.put("/api/profile", auth, async (req, res) => {
-  const addr = req.user.address;
-  const { username, bio, avatar_url } = req.body;
-  await query(
-    `update users
-     set username=$1, bio=$2, avatar_url=$3
-     where address=$4`,
-    [username || null, bio || null, avatar_url || null, addr]
-  );
-  const r = await query(
-    "select address, username, bio, avatar_url from users where address=$1",
-    [addr]
-  );
-  res.json(r.rows[0]);
-});
-
-// criar post (já com address preenchido)
-app.post("/api/posts", auth, async (req, res) => {
+// login com wallet
+app.post("/api/auth", async (req, res) => {
   try {
-    const addr = req.user.address;
-    const { media_url, caption } = req.body;
-    if (!media_url) return res.status(400).json({ error: "media_url required" });
+    const { address, message, signature } = req.body;
+    const recovered = ethers.verifyMessage(message, signature);
+    if (recovered.toLowerCase() !== address.toLowerCase()) {
+      return res.status(400).json({ error: "bad sig" });
+    }
 
-    const r = await query(
-      `insert into posts (user_address, address, media_url, caption)
-       values ($1, $1, $2, $3)
-       returning id, user_address, address, media_url, caption, created_at`,
-      [addr, media_url, caption || null]
+    // garante que o user existe
+    await query(
+      `INSERT INTO users(address) VALUES($1)
+       ON CONFLICT (address) DO NOTHING`,
+      [address]
     );
 
-    res.json(r.rows[0]);
-  } catch (err) {
-    console.error("create post error", err);
-    res.status(500).json({ error: "create post failed" });
+    const token = jwt.sign({ address }, JWT_SECRET, { expiresIn: "7d" });
+    res.json({ token, address });
+  } catch (e) {
+    console.error("auth error", e);
+    res.status(500).json({ error: "auth fail" });
   }
 });
 
-// listar posts
+// pegar feed
 app.get("/api/posts", async (req, res) => {
   const r = await query(
-    `select
-       p.id,
-       coalesce(p.address, p.user_address) as address,
-       p.media_url,
-       p.caption,
-       p.created_at,
-       u.username,
-       u.avatar_url
-     from posts p
-     left join users u on u.address = coalesce(p.address, p.user_address)
-     order by p.created_at desc
-     limit 100`
+    `SELECT p.id,
+            p.media_url,
+            p.caption,
+            p.cloud_provider,
+            p.created_at,
+            p.address,
+            u.username,
+            u.bio,
+            u.avatar_url
+     FROM posts p
+     LEFT JOIN users u ON u.address = p.address
+     ORDER BY p.created_at DESC
+     LIMIT 200`
   );
   res.json(r.rows);
 });
 
-// front
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+// criar post
+app.post("/api/posts", auth, async (req, res) => {
+  try {
+    const address = req.user.address;
+    const { media_url, caption } = req.body;
+
+    if (!media_url) {
+      return res.status(400).json({ error: "media_url required" });
+    }
+
+    // AQUI estava o problema: cada coluna tem seu parâmetro
+    await query(
+      `INSERT INTO posts
+         (user_address, media_url, caption, cloud_provider, address)
+       VALUES
+         ($1, $2, $3, $4, $5)`,
+      [address, media_url, caption || null, "cloudinary", address]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("create post error", e);
+    res.status(500).json({ error: "create post error" });
+  }
 });
 
+// pegar meu profile
+app.get("/api/profile/me", auth, async (req, res) => {
+  const address = req.user.address;
+  const r = await query(
+    `SELECT address, username, bio, avatar_url
+       FROM users
+      WHERE address = $1`,
+    [address]
+  );
+  res.json(r.rows[0] || { address });
+});
+
+// atualizar profile
+app.put("/api/profile", auth, async (req, res) => {
+  const address = req.user.address;
+  const { username, bio, avatar_url } = req.body;
+  await query(
+    `UPDATE users
+        SET username = $1,
+            bio = $2,
+            avatar_url = $3
+      WHERE address = $4`,
+    [username || null, bio || null, avatar_url || null, address]
+  );
+  res.json({ ok: true });
+});
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Hextagram on", PORT);
 });
