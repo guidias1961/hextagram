@@ -12,13 +12,11 @@ const btnConnect = document.getElementById("btn-connect");
 const cancelUpload = document.getElementById("cancel-upload");
 const doUpload = document.getElementById("do-upload");
 const uploadStatus = document.getElementById("upload-status");
-
 const profileUsernameEl = document.getElementById("profile-username");
 const profileBioEl = document.getElementById("profile-bio");
 const profileAvatarEl = document.getElementById("profile-avatar");
 const profileSaveBtn = document.getElementById("profile-save");
 const profileSaveStatus = document.getElementById("profile-save-status");
-
 const avatarBtn = document.getElementById("avatar-upload-btn");
 const avatarFile = document.getElementById("avatar-file");
 const avatarPreview = document.getElementById("avatar-preview");
@@ -37,24 +35,29 @@ document.querySelectorAll(".nav-btn").forEach(btn => {
   });
 });
 
-btnUpload.addEventListener("click", () => {
-  if (!jwtToken) {
-    alert("Connect wallet first");
-    return;
-  }
-  uploadModal.classList.remove("hidden");
-});
-cancelUpload.addEventListener("click", () => {
-  uploadModal.classList.add("hidden");
-  uploadStatus.textContent = "";
-});
-
-btnConnect.addEventListener("click", async () => {
-  await connectWallet();
-});
+if (btnUpload) {
+  btnUpload.addEventListener("click", () => {
+    if (!jwtToken) {
+      alert("Connect wallet first");
+      return;
+    }
+    document.getElementById("upload-modal").classList.remove("hidden");
+  });
+}
+if (cancelUpload) {
+  cancelUpload.addEventListener("click", () => {
+    document.getElementById("upload-modal").classList.add("hidden");
+    if (uploadStatus) uploadStatus.textContent = "";
+  });
+}
+if (btnConnect) {
+  btnConnect.addEventListener("click", async () => {
+    await connectWallet();
+  });
+}
 
 function shortAddr(a) {
-  return a.slice(0,6) + "..." + a.slice(-4);
+  return a.slice(0, 6) + "..." + a.slice(-4);
 }
 
 async function connectWallet() {
@@ -62,22 +65,24 @@ async function connectWallet() {
     alert("Metamask not detected");
     return;
   }
+  if (typeof ethers === "undefined") {
+    alert("ethers ainda não carregou, recarrega a página");
+    return;
+  }
   try {
-    const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-    const address = accounts[0];
-
-    let chainId = await window.ethereum.request({ method: "eth_chainId" });
+    const provider = new ethers.providers.Web3Provider(window.ethereum, "any");
+    await provider.send("eth_requestAccounts", []);
+    let chainId = await provider.send("eth_chainId", []);
     if (chainId !== "0x171") {
       try {
-        await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x171" }]
-        });
+        await provider.send("wallet_switchEthereumChain", [{ chainId: "0x171" }]);
       } catch (e) {
-        alert("Add PulseChain (369) in Metamask and try again");
+        alert("Adiciona a PulseChain (369) na Metamask e tenta de novo");
         return;
       }
     }
+    const signer = provider.getSigner();
+    const address = await signer.getAddress();
 
     currentAddress = address;
     walletAddressEl.textContent = shortAddr(address);
@@ -86,8 +91,6 @@ async function connectWallet() {
     const nonceRes = await fetch(`/api/auth/nonce/${address}`);
     const { nonce } = await nonceRes.json();
 
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
     const message = `Hextagram login on PulseChain, nonce: ${nonce}`;
     const signature = await signer.signMessage(message);
 
@@ -113,9 +116,13 @@ async function connectWallet() {
 }
 
 async function loadCfConfig() {
-  const r = await fetch("/api/cf/config");
-  const d = await r.json();
-  cfDeliveryUrl = (d.deliveryUrl || "").trim();
+  try {
+    const r = await fetch("/api/cf/config");
+    const d = await r.json();
+    cfDeliveryUrl = (d.deliveryUrl || "").trim();
+  } catch (e) {
+    cfDeliveryUrl = "";
+  }
 }
 
 async function loadMyProfile() {
@@ -134,95 +141,99 @@ async function loadMyProfile() {
   }
 }
 
-profileSaveBtn.addEventListener("click", async () => {
-  if (!jwtToken) {
-    alert("Connect wallet first");
-    return;
-  }
-  profileSaveStatus.textContent = "Saving...";
-  const r = await fetch("/api/me", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " + jwtToken
-    },
-    body: JSON.stringify({
-      username: profileUsernameEl.value,
-      bio: profileBioEl.value,
-      avatar_url: profileAvatarEl.value
-    })
+if (profileSaveBtn) {
+  profileSaveBtn.addEventListener("click", async () => {
+    if (!jwtToken) {
+      alert("Connect wallet first");
+      return;
+    }
+    profileSaveStatus.textContent = "Saving...";
+    const r = await fetch("/api/me", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + jwtToken
+      },
+      body: JSON.stringify({
+        username: profileUsernameEl.value,
+        bio: profileBioEl.value,
+        avatar_url: profileAvatarEl.value
+      })
+    });
+    if (r.ok) {
+      profileSaveStatus.textContent = "Saved";
+      loadFeed();
+    } else {
+      profileSaveStatus.textContent = "Error";
+    }
   });
-  if (r.ok) {
-    profileSaveStatus.textContent = "Saved";
-    loadFeed();
-  } else {
-    profileSaveStatus.textContent = "Error";
-  }
-});
+}
 
-avatarBtn.addEventListener("click", () => {
-  if (!jwtToken) {
-    alert("Connect wallet first");
-    return;
-  }
-  avatarFile.click();
-});
-
-avatarFile.addEventListener("change", async () => {
-  if (!avatarFile.files.length) return;
-  const file = avatarFile.files[0];
-  avatarUploadStatus.textContent = "Getting upload URL...";
-  const urlRes = await fetch("/api/cf/image-url", {
-    method: "POST",
-    headers: { "Authorization": "Bearer " + jwtToken }
+if (avatarBtn) {
+  avatarBtn.addEventListener("click", () => {
+    if (!jwtToken) {
+      alert("Connect wallet first");
+      return;
+    }
+    avatarFile.click();
   });
-  const urlData = await urlRes.json();
-  if (!urlData.uploadURL) {
-    avatarUploadStatus.textContent = "Cloudflare not configured";
-    return;
-  }
-  const fd = new FormData();
-  fd.append("file", file);
-  const upRes = await fetch(urlData.uploadURL, {
-    method: "POST",
-    body: fd
+}
+if (avatarFile) {
+  avatarFile.addEventListener("change", async () => {
+    if (!avatarFile.files.length) return;
+    const file = avatarFile.files[0];
+    avatarUploadStatus.textContent = "Getting upload URL...";
+    const urlRes = await fetch("/api/cf/image-url", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + jwtToken }
+    });
+    const urlData = await urlRes.json();
+    if (!urlData.uploadURL) {
+      avatarUploadStatus.textContent = "Cloudflare not configured";
+      return;
+    }
+    const fd = new FormData();
+    fd.append("file", file);
+    const upRes = await fetch(urlData.uploadURL, {
+      method: "POST",
+      body: fd
+    });
+    const upData = await upRes.json();
+    if (!upData.success) {
+      avatarUploadStatus.textContent = "Upload failed";
+      return;
+    }
+    let avatarUrl;
+    if (cfDeliveryUrl) {
+      avatarUrl = cfDeliveryUrl.replace(/\/$/, "") + "/" + upData.result.id + "/public";
+    } else if (upData.result.variants && upData.result.variants.length) {
+      avatarUrl = upData.result.variants[0];
+    } else {
+      avatarUploadStatus.textContent = "No public URL";
+      return;
+    }
+    const save = await fetch("/api/me", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + jwtToken
+      },
+      body: JSON.stringify({
+        username: profileUsernameEl.value,
+        bio: profileBioEl.value,
+        avatar_url: avatarUrl
+      })
+    });
+    if (save.ok) {
+      avatarPreview.style.backgroundImage = `url('${avatarUrl}')`;
+      profileAvatarEl.value = avatarUrl;
+      avatarUploadStatus.textContent = "Avatar updated";
+      loadFeed();
+    } else {
+      avatarUploadStatus.textContent = "Error saving avatar";
+    }
   });
-  const upData = await upRes.json();
-  if (!upData.success) {
-    avatarUploadStatus.textContent = "Upload failed";
-    return;
-  }
-  let avatarUrl;
-  if (cfDeliveryUrl) {
-    avatarUrl = cfDeliveryUrl.replace(/\/$/, "") + "/" + upData.result.id + "/public";
-  } else if (upData.result.variants && upData.result.variants.length) {
-    avatarUrl = upData.result.variants[0];
-  } else {
-    avatarUploadStatus.textContent = "No public URL";
-    return;
-  }
-
-  const save = await fetch("/api/me", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " + jwtToken
-    },
-    body: JSON.stringify({
-      username: profileUsernameEl.value,
-      bio: profileBioEl.value,
-      avatar_url: avatarUrl
-    })
-  });
-  if (save.ok) {
-    avatarPreview.style.backgroundImage = `url('${avatarUrl}')`;
-    profileAvatarEl.value = avatarUrl;
-    avatarUploadStatus.textContent = "Avatar updated";
-    loadFeed();
-  } else {
-    avatarUploadStatus.textContent = "Error saving avatar";
-  }
-});
+}
 
 async function loadFeed() {
   const res = await fetch("/api/posts");
@@ -257,7 +268,6 @@ function renderFeed(posts) {
     `;
     feedEl.appendChild(card);
   });
-
   feedEl.querySelectorAll("[data-like]").forEach(btn => {
     btn.addEventListener("click", async () => {
       if (!jwtToken) {
@@ -275,7 +285,6 @@ function renderFeed(posts) {
       loadFeed();
     });
   });
-
   feedEl.querySelectorAll("[data-comment]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const id = btn.getAttribute("data-comment");
@@ -340,77 +349,73 @@ async function loadMyPosts() {
   });
 }
 
-doUpload.addEventListener("click", async () => {
-  if (!jwtToken) {
-    alert("Connect wallet first");
-    return;
-  }
-  const fileInput = document.getElementById("media-file");
-  const caption = document.getElementById("caption").value;
-  if (!fileInput.files.length) {
-    alert("Select file");
-    return;
-  }
-  const file = fileInput.files[0];
-  uploadStatus.textContent = "Getting Cloudflare URL...";
-
-  const urlRes = await fetch("/api/cf/image-url", {
-    method: "POST",
-    headers: { "Authorization": "Bearer " + jwtToken }
+if (doUpload) {
+  doUpload.addEventListener("click", async () => {
+    if (!jwtToken) {
+      alert("Connect wallet first");
+      return;
+    }
+    const fileInput = document.getElementById("media-file");
+    const caption = document.getElementById("caption").value;
+    if (!fileInput || !fileInput.files.length) {
+      alert("Select file");
+      return;
+    }
+    const file = fileInput.files[0];
+    uploadStatus.textContent = "Getting Cloudflare URL...";
+    const urlRes = await fetch("/api/cf/image-url", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + jwtToken }
+    });
+    const urlData = await urlRes.json();
+    if (!urlData.uploadURL) {
+      uploadStatus.textContent = "Cloudflare not configured";
+      return;
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    const upRes = await fetch(urlData.uploadURL, {
+      method: "POST",
+      body: formData
+    });
+    const upData = await upRes.json();
+    if (!upData.success) {
+      uploadStatus.textContent = "Upload failed";
+      return;
+    }
+    let publicUrl;
+    if (cfDeliveryUrl) {
+      publicUrl = cfDeliveryUrl.replace(/\/$/, "") + "/" + upData.result.id + "/public";
+    } else if (upData.result.variants && upData.result.variants.length) {
+      publicUrl = upData.result.variants[0];
+    } else {
+      uploadStatus.textContent = "No public URL";
+      return;
+    }
+    uploadStatus.textContent = "Saving post...";
+    const save = await fetch("/api/posts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + jwtToken
+      },
+      body: JSON.stringify({
+        media_url: publicUrl,
+        media_type: "image/jpeg",
+        caption
+      })
+    });
+    if (save.ok) {
+      uploadStatus.textContent = "Done";
+      document.getElementById("upload-modal").classList.add("hidden");
+      document.getElementById("caption").value = "";
+      fileInput.value = "";
+      loadFeed();
+    } else {
+      uploadStatus.textContent = "Error saving post";
+    }
   });
-  const urlData = await urlRes.json();
-  if (!urlData.uploadURL) {
-    uploadStatus.textContent = "Cloudflare not configured";
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append("file", file);
-  const upRes = await fetch(urlData.uploadURL, {
-    method: "POST",
-    body: formData
-  });
-  const upData = await upRes.json();
-  if (!upData.success) {
-    uploadStatus.textContent = "Upload failed";
-    return;
-  }
-
-  let publicUrl;
-  if (cfDeliveryUrl) {
-    publicUrl = cfDeliveryUrl.replace(/\/$/, "") + "/" + upData.result.id + "/public";
-  } else if (upData.result.variants && upData.result.variants.length) {
-    publicUrl = upData.result.variants[0];
-  } else {
-    uploadStatus.textContent = "No public URL";
-    return;
-  }
-
-  uploadStatus.textContent = "Saving post...";
-
-  const save = await fetch("/api/posts", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " + jwtToken
-    },
-    body: JSON.stringify({
-      media_url: publicUrl,
-      media_type: "image/jpeg",
-      caption
-    })
-  });
-
-  if (save.ok) {
-    uploadStatus.textContent = "Done";
-    uploadModal.classList.add("hidden");
-    document.getElementById("caption").value = "";
-    document.getElementById("media-file").value = "";
-    loadFeed();
-  } else {
-    uploadStatus.textContent = "Error saving post";
-  }
-});
+}
 
 loadFeed();
 

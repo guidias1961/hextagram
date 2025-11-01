@@ -69,23 +69,8 @@
     </main>
   </div>
 
-  <div id="upload-modal" class="modal hidden">
-    <div class="modal-content">
-      <h3>New post</h3>
-      <p>Upload direto para Cloudflare Images</p>
-      <label>Select image</label>
-      <input type="file" id="media-file" accept="image/*" />
-      <label>Caption</label>
-      <textarea id="caption"></textarea>
-      <div class="actions">
-        <button id="cancel-upload">Cancel</button>
-        <button id="do-upload">Upload</button>
-      </div>
-      <div id="upload-status"></div>
-    </div>
-  </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.min.js"></script>
+  <!-- ethers v5 em UMD, expõe window.ethers -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
