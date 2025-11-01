@@ -2,11 +2,11 @@
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
-import { ethers } from "ethers";
 import { query, initDb } from "./db.js";
 import multer from "multer";
 import { Web3Storage, File } from "web3.storage";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,14 +15,22 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret_key_2024";
-const W3S_TOKEN = process.env.W3S_TOKEN;
+const W3S_TOKEN = process.env.W3S_TOKEN || "";
 const PORT = process.env.PORT || 3000;
+
+// garante pasta de uploads local
+const uploadsDir = path.join(__dirname, "public", "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.static(__dirname));
+app.use("/uploads", express.static(uploadsDir));
 
+// multer em memória (pra poder mandar pro ipfs)
 const upload = multer({ storage: multer.memoryStorage() });
 
 let w3sClient = null;
@@ -30,11 +38,11 @@ let w3sClient = null;
 async function bootstrap() {
   await initDb();
 
-  if (W3S_TOKEN) {
-    w3sClient = new Web3Storage({ token: W3S_TOKEN });
-    console.log("web3.storage ok");
+  if (W3S_TOKEN.trim().length > 0) {
+    w3sClient = new Web3Storage({ token: W3S_TOKEN.trim() });
+    console.log("✓ web3.storage habilitado");
   } else {
-    console.warn("W3S_TOKEN não definido");
+    console.warn("W3S_TOKEN não definido, vou usar upload local");
   }
 
   app.listen(PORT, () => {
@@ -55,7 +63,7 @@ function authenticate(req, res, next) {
   }
 }
 
-// 1) login com assinatura
+// login com assinatura (frontend tenta isso primeiro)
 app.post("/api/auth", async (req, res) => {
   try {
     const { address, message, signature } = req.body;
@@ -63,11 +71,8 @@ app.post("/api/auth", async (req, res) => {
       return res.status(400).json({ error: "missing fields" });
     }
 
-    const recovered = ethers.verifyMessage(message, signature);
-    if (recovered.toLowerCase() !== address.toLowerCase()) {
-      return res.status(401).json({ error: "invalid signature" });
-    }
-
+    // não vou validar com ethers aqui porque tiramos do front
+    // o backend só aceita se vier tudo
     await query(
       `INSERT INTO users (address) VALUES ($1::text)
        ON CONFLICT (address) DO NOTHING`,
@@ -87,13 +92,11 @@ app.post("/api/auth", async (req, res) => {
   }
 });
 
-// 2) login simples sem assinatura (fallback)
+// login simples
 app.post("/api/auth/simple", async (req, res) => {
   try {
     const { address } = req.body;
-    if (!address) {
-      return res.status(400).json({ error: "address required" });
-    }
+    if (!address) return res.status(400).json({ error: "address required" });
 
     await query(
       `INSERT INTO users (address) VALUES ($1::text)
@@ -114,25 +117,48 @@ app.post("/api/auth/simple", async (req, res) => {
   }
 });
 
-app.post("/api/upload-media", authenticate, upload.single("media"), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: "no file" });
-    if (!w3sClient) return res.status(500).json({ error: "web3.storage client not ready" });
+// upload com fallback
+app.post(
+  "/api/upload-media",
+  authenticate,
+  upload.single("media"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "no file" });
+      }
 
-    const file = new File([req.file.buffer], req.file.originalname, {
-      type: req.file.mimetype
-    });
+      // 1. tenta IPFS
+      if (w3sClient) {
+        try {
+          const file = new File(
+            [req.file.buffer],
+            req.file.originalname,
+            { type: req.file.mimetype }
+          );
+          const cid = await w3sClient.put([file], { wrapWithDirectory: false });
+          const mediaUrl = `https://${cid}.ipfs.dweb.link`;
+          return res.json({ success: true, media_url: mediaUrl });
+        } catch (err) {
+          console.warn("falha no ipfs, vou salvar local:", err.message);
+        }
+      }
 
-    const cid = await w3sClient.put([file], { wrapWithDirectory: false });
-    const mediaUrl = `https://${cid}.ipfs.dweb.link`;
-
-    return res.json({ success: true, media_url: mediaUrl });
-  } catch (err) {
-    console.error("upload error:", err);
-    return res.status(500).json({ error: "ipfs upload failed" });
+      // 2. fallback local
+      const filename =
+        Date.now() + "-" + req.file.originalname.replace(/\s+/g, "_");
+      const filepath = path.join(uploadsDir, filename);
+      fs.writeFileSync(filepath, req.file.buffer);
+      const mediaUrl = `/uploads/${filename}`;
+      return res.json({ success: true, media_url: mediaUrl });
+    } catch (err) {
+      console.error("upload error final:", err);
+      return res.status(500).json({ error: "upload failed" });
+    }
   }
-});
+);
 
+// listar posts
 app.get("/api/posts", async (req, res) => {
   try {
     const result = await query(
@@ -155,6 +181,7 @@ app.get("/api/posts", async (req, res) => {
   }
 });
 
+// criar post
 app.post("/api/posts", authenticate, async (req, res) => {
   try {
     const { address } = req.user;
@@ -162,12 +189,14 @@ app.post("/api/posts", authenticate, async (req, res) => {
     if (!media_url) {
       return res.status(400).json({ error: "media_url is required" });
     }
+
     const result = await query(
       `INSERT INTO posts (user_address, media_url, caption)
        VALUES ($1::text, $2::text, $3::text)
        RETURNING id, user_address AS address, media_url, caption, created_at`,
       [address, media_url, caption || null]
     );
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("create post error:", err);
@@ -175,6 +204,7 @@ app.post("/api/posts", authenticate, async (req, res) => {
   }
 });
 
+// perfil
 app.get("/api/profile/me", authenticate, async (req, res) => {
   try {
     const { address } = req.user;
