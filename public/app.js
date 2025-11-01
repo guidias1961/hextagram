@@ -1,10 +1,7 @@
 // app.js
-const API = '';
-
 const state = {
   address: null,
-  token: null,
-  uploading: false
+  token: null
 };
 
 function saveSession() {
@@ -183,9 +180,12 @@ function openProfileModal() {
   const userEl = document.getElementById('profile-username-display');
   const bioEl = document.getElementById('profile-bio-display');
   const avEl = document.getElementById('profile-avatar');
+
   document.getElementById('pf-username').value = userEl ? userEl.textContent : '';
   document.getElementById('pf-bio').value = bioEl ? bioEl.textContent : '';
-  document.getElementById('pf-avatar').value = avEl ? avEl.src : '';
+  const prev = document.getElementById('pf-avatar-preview');
+  if (prev && avEl) prev.src = avEl.src;
+
   m.classList.remove('hidden');
 }
 
@@ -199,9 +199,31 @@ async function saveProfile() {
     alert('conecte a wallet');
     return;
   }
+
   const username = document.getElementById('pf-username').value.trim();
   const bio = document.getElementById('pf-bio').value.trim();
-  const avatar_url = document.getElementById('pf-avatar').value.trim();
+
+  const fileInput = document.getElementById('pf-avatar-file');
+  let avatarUrl = null;
+
+  if (fileInput && fileInput.files && fileInput.files[0]) {
+    const fd = new FormData();
+    fd.append('avatar', fileInput.files[0]);
+    const up = await fetch('/api/profile/avatar', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${state.token}`
+      },
+      body: fd
+    });
+    const upData = await up.json();
+    if (up.ok && upData.avatar_url) {
+      avatarUrl = upData.avatar_url;
+    } else {
+      alert('erro ao enviar avatar');
+      return;
+    }
+  }
 
   const resp = await fetch('/api/profile', {
     method: 'PUT',
@@ -209,7 +231,11 @@ async function saveProfile() {
       Authorization: `Bearer ${state.token}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ username, bio, avatar_url })
+    body: JSON.stringify({
+      username,
+      bio,
+      avatar_url: avatarUrl || undefined
+    })
   });
   if (!resp.ok) {
     alert('erro ao salvar perfil');
@@ -323,9 +349,19 @@ function bindProfileModal() {
   const editBtn = document.getElementById('edit-profile-btn');
   const cancelBtn = document.getElementById('pf-cancel');
   const saveBtn = document.getElementById('pf-save');
+  const avatarFile = document.getElementById('pf-avatar-file');
   if (editBtn) editBtn.addEventListener('click', openProfileModal);
   if (cancelBtn) cancelBtn.addEventListener('click', closeProfileModal);
   if (saveBtn) saveBtn.addEventListener('click', saveProfile);
+  if (avatarFile) {
+    avatarFile.addEventListener('change', () => {
+      const f = avatarFile.files && avatarFile.files[0];
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      const prev = document.getElementById('pf-avatar-preview');
+      if (prev) prev.src = url;
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

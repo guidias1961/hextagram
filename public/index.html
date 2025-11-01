@@ -80,8 +80,11 @@
       <label for="pf-bio">Bio</label>
       <textarea id="pf-bio" rows="3"></textarea>
 
-      <label for="pf-avatar">URL do avatar</label>
-      <input id="pf-avatar" type="text" placeholder="https://..." />
+      <label>Avatar</label>
+      <div class="avatar-upload-row">
+        <img id="pf-avatar-preview" class="avatar-preview" src="https://i.pravatar.cc/80" alt="" />
+        <input id="pf-avatar-file" type="file" accept="image/*" />
+      </div>
 
       <div class="modal-actions">
         <button id="pf-cancel" class="btn-secondary">Cancelar</button>

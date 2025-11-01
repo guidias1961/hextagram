@@ -52,7 +52,6 @@ function guessMediaType(url) {
   return "image";
 }
 
-// AUTH
 app.post("/api/auth/simple", async (req, res) => {
   const { address } = req.body;
   if (!address) return res.status(400).json({ error: "address required" });
@@ -69,7 +68,6 @@ app.post("/api/auth/simple", async (req, res) => {
   res.json({ token, address: address.toLowerCase() });
 });
 
-// UPLOAD
 app.post("/api/upload-media", auth, upload.single("media"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "no file" });
@@ -105,12 +103,39 @@ app.post("/api/upload-media", auth, upload.single("media"), async (req, res) => 
   }
 });
 
-// CRIAR POST
+// upload de avatar
+app.post("/api/profile/avatar", auth, upload.single("avatar"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "no file" });
+
+    if (HAS_STORACHA && storachaClient) {
+      const file = new File([req.file.buffer], req.file.originalname, {
+        type: req.file.mimetype
+      });
+      const cid = await storachaClient.uploadFile(file);
+      const avatarUrl = `https://${cid}.ipfs.storacha.link/${req.file.originalname}`;
+      return res.json({ success: true, avatar_url: avatarUrl, storage: "storacha" });
+    }
+
+    const filename =
+      "avatar-" +
+      Date.now() +
+      "-" +
+      req.file.originalname.replace(/\s+/g, "_").toLowerCase();
+    const filepath = path.join(uploadsDir, filename);
+    fs.writeFileSync(filepath, req.file.buffer);
+    const avatarUrl = `/uploads/${filename}`;
+    return res.json({ success: true, avatar_url: avatarUrl, storage: "local" });
+  } catch (err) {
+    console.error("upload avatar error", err);
+    return res.status(500).json({ error: "upload avatar failed" });
+  }
+});
+
 app.post("/api/posts", auth, async (req, res) => {
   try {
     const { media_url, caption, media_type } = req.body;
     const address = req.user.address;
-
     if (!media_url) return res.status(400).json({ error: "media_url required" });
 
     const mt = media_type || guessMediaType(media_url);
@@ -129,7 +154,6 @@ app.post("/api/posts", auth, async (req, res) => {
   }
 });
 
-// LISTAR POSTS
 app.get("/api/posts", async (req, res) => {
   try {
     const r = await query(
@@ -150,7 +174,6 @@ app.get("/api/posts", async (req, res) => {
   }
 });
 
-// GET PROFILE
 app.get("/api/profile/me", auth, async (req, res) => {
   const r = await query(
     `SELECT address, username, bio, avatar_url, created_at
@@ -164,7 +187,6 @@ app.get("/api/profile/me", auth, async (req, res) => {
   res.json(r.rows[0]);
 });
 
-// UPDATE PROFILE
 app.put("/api/profile", auth, async (req, res) => {
   const { username, bio, avatar_url } = req.body;
   await query(
@@ -178,23 +200,19 @@ app.put("/api/profile", auth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// HEALTH
 app.get("/api/health", (req, res) => {
   res.json({ ok: true });
 });
 
-// estáticos
 app.use(express.static(publicDir));
 app.use("/uploads", express.static(uploadsDir));
 
-// catch-all
 app.get("*", (req, res) => {
   res.sendFile(path.join(publicDir, "index.html"));
 });
 
 async function start() {
   await initDb();
-  // garante media_type
   await query(`UPDATE posts SET media_type = 'image' WHERE media_type IS NULL`, []);
 
   if (HAS_STORACHA) {
