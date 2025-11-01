@@ -1,3 +1,5 @@
+const PULSE_CHAIN_ID_HEX = "0x171";
+
 let jwtToken = null;
 let currentAddress = null;
 let cfDeliveryUrl = "";
@@ -41,15 +43,17 @@ if (btnUpload) {
       alert("Connect wallet first");
       return;
     }
-    document.getElementById("upload-modal").classList.remove("hidden");
+    uploadModal.classList.remove("hidden");
   });
 }
+
 if (cancelUpload) {
   cancelUpload.addEventListener("click", () => {
-    document.getElementById("upload-modal").classList.add("hidden");
-    if (uploadStatus) uploadStatus.textContent = "";
+    uploadModal.classList.add("hidden");
+    uploadStatus.textContent = "";
   });
 }
+
 if (btnConnect) {
   btnConnect.addEventListener("click", async () => {
     await connectWallet();
@@ -60,29 +64,53 @@ function shortAddr(a) {
   return a.slice(0, 6) + "..." + a.slice(-4);
 }
 
+async function switchToPulse() {
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: PULSE_CHAIN_ID_HEX }]
+    });
+  } catch (err) {
+    if (err.code === 4902) {
+      await window.ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [
+          {
+            chainId: PULSE_CHAIN_ID_HEX,
+            chainName: "PulseChain",
+            nativeCurrency: {
+              name: "PLS",
+              symbol: "PLS",
+              decimals: 18
+            },
+            rpcUrls: ["https://rpc.pulsechain.com"],
+            blockExplorerUrls: ["https://scan.pulsechain.com"]
+          }
+        ]
+      });
+    } else {
+      throw err;
+    }
+  }
+}
+
 async function connectWallet() {
   if (!window.ethereum) {
     alert("Metamask not detected");
     return;
   }
-  if (typeof ethers === "undefined") {
-    alert("ethers ainda não carregou, recarrega a página");
-    return;
-  }
   try {
-    const provider = new ethers.providers.Web3Provider(window.ethereum, "any");
-    await provider.send("eth_requestAccounts", []);
-    let chainId = await provider.send("eth_chainId", []);
-    if (chainId !== "0x171") {
-      try {
-        await provider.send("wallet_switchEthereumChain", [{ chainId: "0x171" }]);
-      } catch (e) {
-        alert("Adiciona a PulseChain (369) na Metamask e tenta de novo");
-        return;
-      }
+    const accounts = await window.ethereum.request({
+      method: "eth_requestAccounts"
+    });
+    const address = accounts[0];
+
+    const currentChain = await window.ethereum.request({
+      method: "eth_chainId"
+    });
+    if (currentChain !== PULSE_CHAIN_ID_HEX) {
+      await switchToPulse();
     }
-    const signer = provider.getSigner();
-    const address = await signer.getAddress();
 
     currentAddress = address;
     walletAddressEl.textContent = shortAddr(address);
@@ -92,7 +120,10 @@ async function connectWallet() {
     const { nonce } = await nonceRes.json();
 
     const message = `Hextagram login on PulseChain, nonce: ${nonce}`;
-    const signature = await signer.signMessage(message);
+    const signature = await window.ethereum.request({
+      method: "personal_sign",
+      params: [message, address]
+    });
 
     const verifyRes = await fetch("/api/auth/verify", {
       method: "POST",
@@ -178,6 +209,7 @@ if (avatarBtn) {
     avatarFile.click();
   });
 }
+
 if (avatarFile) {
   avatarFile.addEventListener("change", async () => {
     if (!avatarFile.files.length) return;
@@ -268,6 +300,7 @@ function renderFeed(posts) {
     `;
     feedEl.appendChild(card);
   });
+
   feedEl.querySelectorAll("[data-like]").forEach(btn => {
     btn.addEventListener("click", async () => {
       if (!jwtToken) {
@@ -285,6 +318,7 @@ function renderFeed(posts) {
       loadFeed();
     });
   });
+
   feedEl.querySelectorAll("[data-comment]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const id = btn.getAttribute("data-comment");
@@ -407,7 +441,7 @@ if (doUpload) {
     });
     if (save.ok) {
       uploadStatus.textContent = "Done";
-      document.getElementById("upload-modal").classList.add("hidden");
+      uploadModal.classList.add("hidden");
       document.getElementById("caption").value = "";
       fileInput.value = "";
       loadFeed();
