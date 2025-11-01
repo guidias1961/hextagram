@@ -19,7 +19,7 @@ const __dirname = path.dirname(__filename);
 
 app.use(helmet());
 app.use(cors());
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "4mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 function genNonce() {
@@ -51,8 +51,7 @@ async function authMiddleware(req, res, next) {
 app.get("/api/auth/nonce/:address", async (req, res) => {
   const address = req.params.address.toLowerCase();
   const nonce = genNonce();
-  const sql =
-    "INSERT INTO users(address, nonce) VALUES($1,$2) ON CONFLICT(address) DO UPDATE SET nonce = EXCLUDED.nonce";
+  const sql = "INSERT INTO users(address, nonce) VALUES($1,$2) ON CONFLICT(address) DO UPDATE SET nonce = EXCLUDED.nonce";
   await query(sql, [address, nonce]);
   res.json({ nonce: nonce });
 });
@@ -86,6 +85,40 @@ app.post("/api/auth/verify", async (req, res) => {
   res.json({ token: token });
 });
 
+app.get("/api/cf/config", (req, res) => {
+  res.json({
+    deliveryUrl: process.env.CF_IMAGES_DELIVERY_URL || ""
+  });
+});
+
+app.post("/api/cf/image-url", authMiddleware, async (req, res) => {
+  const accountId = process.env.CF_ACCOUNT_ID;
+  const apiToken = process.env.CF_API_TOKEN;
+  if (!accountId || !apiToken) {
+    res.status(500).json({ error: "cloudflare not configured" });
+    return;
+  }
+  try {
+    const r = await fetch("https://api.cloudflare.com/client/v4/accounts/" + accountId + "/images/v2/direct_upload", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + apiToken
+      }
+    });
+    const data = await r.json();
+    if (!data.success) {
+      res.status(500).json({ error: "cloudflare error", details: data });
+      return;
+    }
+    res.json({
+      uploadURL: data.result.uploadURL,
+      id: data.result.id
+    });
+  } catch (err) {
+    res.status(500).json({ error: "cloudflare fetch failed", details: err.message });
+  }
+});
+
 app.post("/api/posts", authMiddleware, async (req, res) => {
   const media_url = req.body.media_url;
   const media_type = req.body.media_type;
@@ -95,8 +128,7 @@ app.post("/api/posts", authMiddleware, async (req, res) => {
     return;
   }
   const user_address = req.user.address;
-  const sql =
-    "INSERT INTO posts(user_address, media_url, media_type, caption) VALUES($1,$2,$3,$4) RETURNING *";
+  const sql = "INSERT INTO posts(user_address, media_url, media_type, caption) VALUES($1,$2,$3,$4) RETURNING *";
   const result = await query(sql, [user_address, media_url, media_type, caption]);
   res.json(result.rows[0]);
 });
@@ -118,8 +150,7 @@ app.get("/api/posts", async (req, res) => {
 app.post("/api/posts/:id/like", authMiddleware, async (req, res) => {
   const postId = Number(req.params.id);
   const user_address = req.user.address;
-  const sql =
-    "INSERT INTO post_likes(post_id, user_address) VALUES($1,$2) ON CONFLICT DO NOTHING";
+  const sql = "INSERT INTO post_likes(post_id, user_address) VALUES($1,$2) ON CONFLICT DO NOTHING";
   await query(sql, [postId, user_address]);
   res.json({ ok: true });
 });
@@ -132,8 +163,7 @@ app.post("/api/posts/:id/comment", authMiddleware, async (req, res) => {
     res.status(400).json({ error: "no content" });
     return;
   }
-  const sql =
-    "INSERT INTO post_comments(post_id, user_address, content) VALUES($1,$2,$3) RETURNING *";
+  const sql = "INSERT INTO post_comments(post_id, user_address, content) VALUES($1,$2,$3) RETURNING *";
   const result = await query(sql, [postId, user_address, content]);
   res.json(result.rows[0]);
 });
@@ -154,4 +184,3 @@ initDb().then(() => {
     console.log("Hextagram running on port " + PORT);
   });
 });
-

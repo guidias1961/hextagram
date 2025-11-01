@@ -14,15 +14,13 @@ export async function query(text, params) {
 }
 
 export async function initDb() {
-  const s1 =
-    "CREATE TABLE IF NOT EXISTS users (" +
+  const s1 = "CREATE TABLE IF NOT EXISTS users (" +
     "id SERIAL PRIMARY KEY," +
     "address VARCHAR(64) UNIQUE NOT NULL," +
     "nonce VARCHAR(128) NOT NULL DEFAULT ''," +
     "created_at TIMESTAMP DEFAULT NOW()" +
     ");";
-  const s2 =
-    "CREATE TABLE IF NOT EXISTS posts (" +
+  const s2 = "CREATE TABLE IF NOT EXISTS posts (" +
     "id SERIAL PRIMARY KEY," +
     "user_address VARCHAR(64) NOT NULL," +
     "media_url TEXT NOT NULL," +
@@ -30,16 +28,14 @@ export async function initDb() {
     "caption TEXT DEFAULT ''," +
     "created_at TIMESTAMP DEFAULT NOW()" +
     ");";
-  const s3 =
-    "CREATE TABLE IF NOT EXISTS post_likes (" +
+  const s3 = "CREATE TABLE IF NOT EXISTS post_likes (" +
     "id SERIAL PRIMARY KEY," +
     "post_id INT NOT NULL REFERENCES posts(id) ON DELETE CASCADE," +
     "user_address VARCHAR(64) NOT NULL," +
     "created_at TIMESTAMP DEFAULT NOW()," +
     "UNIQUE(post_id, user_address)" +
     ");";
-  const s4 =
-    "CREATE TABLE IF NOT EXISTS post_comments (" +
+  const s4 = "CREATE TABLE IF NOT EXISTS post_comments (" +
     "id SERIAL PRIMARY KEY," +
     "post_id INT NOT NULL REFERENCES posts(id) ON DELETE CASCADE," +
     "user_address VARCHAR(64) NOT NULL," +
@@ -51,4 +47,3 @@ export async function initDb() {
   await pool.query(s3);
   await pool.query(s4);
 }
-
