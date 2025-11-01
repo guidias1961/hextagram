@@ -1,127 +1,96 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Hextagram</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/styles.css?v=5" />
-  </head>
-  <body>
-    <div class="app">
-      <aside class="sidebar">
-        <div class="logo">
-          <div class="logo-icon">H</div>
-          <div class="logo-text">Hextagram</div>
+<head>
+  <meta charset="UTF-8" />
+  <title>Hextagram</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-circle">H</div>
+        <div class="logo-name">Hextagram</div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-view="feed">Feed</button>
+        <button class="nav-item" data-view="explore">Explorar</button>
+        <button class="nav-item" data-view="upload">Criar</button>
+        <button class="nav-item" data-view="profile">Perfil</button>
+      </nav>
+      <div class="wallet-box">
+        <div class="wallet-chain">
+          <span class="pill pulse">PulseChain</span>
+          <span id="wallet-address">Não conectado</span>
         </div>
+        <button id="connect-wallet" class="btn-primary small">Conectar wallet</button>
+      </div>
+    </aside>
 
-        <nav class="nav">
-          <button class="nav-item active" data-view="feed">Feed</button>
-          <button class="nav-item" data-view="explore">Explorar</button>
-          <button class="nav-item" data-view="upload">Criar</button>
-          <button class="nav-item" data-view="profile">Perfil</button>
-        </nav>
+    <main class="main">
+      <section id="view-feed" class="view active">
+        <h1 class="page-title">Feed</h1>
+        <div id="feed-posts" class="feed-list"></div>
+      </section>
 
-        <div class="wallet-section">
-          <div class="wallet-info">
-            <span class="chain-badge">PulseChain</span>
-            <span class="wallet-address" id="wallet-address">Não conectado</span>
+      <section id="view-explore" class="view">
+        <h1 class="page-title">Explorar</h1>
+        <p class="muted">Em breve.</p>
+      </section>
+
+      <section id="view-upload" class="view">
+        <h1 class="page-title">Novo post</h1>
+        <div class="upload-card">
+          <div id="upload-preview" class="upload-preview">
+            <p>Selecione uma imagem</p>
           </div>
-          <button class="btn-connect" id="connect-wallet">Conectar wallet</button>
+          <input id="file-input" type="file" accept="image/*,video/*" style="display:none" />
+          <button id="select-file" class="btn-secondary full">Escolher imagem</button>
+          <textarea id="caption-input" rows="3" placeholder="Legenda opcional"></textarea>
+          <button id="upload-btn" class="btn-primary full" disabled>Publicar</button>
+          <p id="upload-status" class="muted"></p>
         </div>
-      </aside>
+      </section>
 
-      <main class="main-content">
-        <section class="view active" id="view-feed">
-          <div class="stories-container" id="stories">
-            <div class="story">
-              <div class="story-avatar gradient-border">
-                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=you" alt="story" />
-              </div>
-              <span class="story-name">Seu story</span>
+      <section id="view-profile" class="view">
+        <h1 class="page-title">Perfil</h1>
+        <div class="profile-card">
+          <img id="profile-avatar" class="profile-avatar" src="https://i.pravatar.cc/120" alt="avatar" />
+          <div class="profile-info">
+            <div class="profile-title-line">
+              <h2 id="profile-username-display">username</h2>
+              <button id="edit-profile-btn" class="btn-small">Editar perfil</button>
             </div>
+            <p id="profile-address-display" class="profile-address"></p>
+            <p id="profile-bio-display" class="profile-bio"></p>
           </div>
-          <div id="feed-posts" class="posts-container">
-            <div class="loading">Carregando feed...</div>
-          </div>
-        </section>
+        </div>
+        <p id="profile-loading" class="muted">Carregando...</p>
+      </section>
+    </main>
+  </div>
 
-        <section class="view" id="view-explore">
-          <h2 class="section-title">Explorar</h2>
-          <div class="explore-grid" id="explore-grid">
-            <div class="loading">Carregando...</div>
-          </div>
-        </section>
+  <div id="profile-modal" class="modal hidden">
+    <div class="modal-body">
+      <h3>Editar perfil</h3>
+      <label for="pf-username">Nome</label>
+      <input id="pf-username" type="text" />
 
-        <section class="view" id="view-upload">
-          <div class="upload-container">
-            <div class="upload-card">
-              <h2>Novo post</h2>
-              <div class="upload-preview" id="upload-preview">
-                <p>Selecione uma imagem</p>
-              </div>
-              <input type="file" id="file-input" accept="image/*" hidden />
-              <button class="btn-secondary" id="select-file">Escolher imagem</button>
-              <textarea id="caption-input" rows="3" placeholder="Legenda opcional"></textarea>
-              <button class="btn-primary" id="upload-btn" disabled>
-                <span id="upload-text">Publicar</span>
-              </button>
-              <div class="upload-status" id="upload-status"></div>
-            </div>
-          </div>
-        </section>
+      <label for="pf-bio">Bio</label>
+      <textarea id="pf-bio" rows="3"></textarea>
 
-        <section class="view" id="view-profile">
-          <div class="profile-container">
-            <div class="profile-header">
-              <div class="profile-avatar-large">
-                <img id="profile-avatar-img" src="https://api.dicebear.com/7.x/avataaars/svg?seed=user" alt="avatar" />
-              </div>
-              <div class="profile-info">
-                <div class="profile-username-row">
-                  <h2 id="profile-username-display">username</h2>
-                  <button class="btn-secondary" id="edit-profile-btn">Editar perfil</button>
-                </div>
-                <div class="profile-stats">
-                  <div><strong id="posts-count">0</strong> posts</div>
-                  <div><strong>0</strong> seguidores</div>
-                  <div><strong>0</strong> seguindo</div>
-                </div>
-                <p class="profile-bio" id="profile-bio-display"></p>
-                <p class="profile-address-display" id="profile-address-display"></p>
-              </div>
-            </div>
+      <label for="pf-avatar">URL do avatar</label>
+      <input id="pf-avatar" type="text" placeholder="https://..." />
 
-            <div class="profile-grid" id="user-posts">
-              <div class="loading">Carregando...</div>
-            </div>
-          </div>
-
-          <div class="modal" id="edit-profile-modal">
-            <div class="modal-content">
-              <div class="modal-header">
-                <h3>Editar perfil</h3>
-                <button class="modal-close" id="close-modal">&times;</button>
-              </div>
-              <div class="modal-body">
-                <label>Username</label>
-                <input id="edit-username" type="text" />
-                <label>Bio</label>
-                <textarea id="edit-bio" rows="3"></textarea>
-                <label>Avatar URL</label>
-                <input id="edit-avatar" type="text" />
-              </div>
-              <div class="modal-footer">
-                <button class="btn-secondary" id="cancel-edit">Cancelar</button>
-                <button class="btn-primary" id="save-profile">Salvar</button>
-              </div>
-            </div>
-          </div>
-        </section>
-      </main>
+      <div class="modal-actions">
+        <button id="pf-cancel" class="btn-secondary">Cancelar</button>
+        <button id="pf-save" class="btn-primary">Salvar</button>
+      </div>
     </div>
+  </div>
 
-    <!-- sem ethers -->
-    <script src="/app.js?v=5"></script>
-  </body>
+  <script src="/app.js"></script>
+</body>
 </html>
 

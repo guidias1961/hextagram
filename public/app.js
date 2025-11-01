@@ -144,9 +144,12 @@ function renderPost(post) {
 }
 
 async function loadProfile() {
+  const loading = document.getElementById('profile-loading');
+  if (loading) loading.textContent = 'Carregando...';
   if (!state.token) {
-    const el = document.getElementById('profile-address-display');
-    if (el) el.textContent = 'Conecte a wallet';
+    const a = document.getElementById('profile-address-display');
+    if (a) a.textContent = 'Conecte a wallet';
+    if (loading) loading.textContent = '';
     return;
   }
   try {
@@ -154,17 +157,66 @@ async function loadProfile() {
       headers: { Authorization: `Bearer ${state.token}` }
     });
     const ct = resp.headers.get('content-type') || '';
-    if (!ct.includes('application/json')) return;
+    if (!ct.includes('application/json')) {
+      if (loading) loading.textContent = 'Erro';
+      return;
+    }
     const data = await resp.json();
     const addrEl = document.getElementById('profile-address-display');
     const userEl = document.getElementById('profile-username-display');
     const bioEl = document.getElementById('profile-bio-display');
+    const avEl = document.getElementById('profile-avatar');
     if (addrEl) addrEl.textContent = data.address || '';
-    if (userEl) userEl.textContent = data.username || '(sem nome)';
+    if (userEl) userEl.textContent = data.username || 'username';
     if (bioEl) bioEl.textContent = data.bio || '';
+    if (avEl && data.avatar_url) avEl.src = data.avatar_url;
+    if (loading) loading.textContent = '';
   } catch (err) {
     console.error(err);
+    if (loading) loading.textContent = 'Erro';
   }
+}
+
+function openProfileModal() {
+  const m = document.getElementById('profile-modal');
+  if (!m) return;
+  const userEl = document.getElementById('profile-username-display');
+  const bioEl = document.getElementById('profile-bio-display');
+  const avEl = document.getElementById('profile-avatar');
+  document.getElementById('pf-username').value = userEl ? userEl.textContent : '';
+  document.getElementById('pf-bio').value = bioEl ? bioEl.textContent : '';
+  document.getElementById('pf-avatar').value = avEl ? avEl.src : '';
+  m.classList.remove('hidden');
+}
+
+function closeProfileModal() {
+  const m = document.getElementById('profile-modal');
+  if (m) m.classList.add('hidden');
+}
+
+async function saveProfile() {
+  if (!state.token) {
+    alert('conecte a wallet');
+    return;
+  }
+  const username = document.getElementById('pf-username').value.trim();
+  const bio = document.getElementById('pf-bio').value.trim();
+  const avatar_url = document.getElementById('pf-avatar').value.trim();
+
+  const resp = await fetch('/api/profile', {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${state.token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ username, bio, avatar_url })
+  });
+  if (!resp.ok) {
+    alert('erro ao salvar perfil');
+    return;
+  }
+  closeProfileModal();
+  loadProfile();
 }
 
 function bindUpload() {
@@ -195,7 +247,6 @@ function bindUpload() {
 
   if (uploadBtn) {
     uploadBtn.addEventListener('click', async () => {
-      if (uploadBtn.disabled) return;
       if (!state.token) {
         alert('conecte a wallet primeiro');
         return;
@@ -205,10 +256,8 @@ function bindUpload() {
         alert('selecione uma imagem');
         return;
       }
-
       status.textContent = 'Enviando...';
       uploadBtn.disabled = true;
-
       try {
         const fd = new FormData();
         fd.append('media', f);
@@ -219,12 +268,10 @@ function bindUpload() {
         });
         const upData = await up.json();
         if (!up.ok || !upData.media_url) {
-          console.error('upload falhou', upData);
           status.textContent = 'Falha no upload';
           uploadBtn.disabled = false;
           return;
         }
-
         const caption = captionInput ? captionInput.value.trim() : '';
         const postResp = await fetch('/api/posts', {
           method: 'POST',
@@ -238,14 +285,11 @@ function bindUpload() {
             media_type: upData.media_type || 'image'
           })
         });
-        const postData = await postResp.json();
         if (!postResp.ok) {
-          console.error('post falhou', postData);
           status.textContent = 'Erro ao publicar';
           uploadBtn.disabled = false;
           return;
         }
-
         if (fileInput) fileInput.value = '';
         if (captionInput) captionInput.value = '';
         if (preview) preview.innerHTML = '<p>Selecione uma imagem</p>';
@@ -275,11 +319,21 @@ function bindWallet() {
   if (btn) btn.addEventListener('click', connectWallet);
 }
 
+function bindProfileModal() {
+  const editBtn = document.getElementById('edit-profile-btn');
+  const cancelBtn = document.getElementById('pf-cancel');
+  const saveBtn = document.getElementById('pf-save');
+  if (editBtn) editBtn.addEventListener('click', openProfileModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeProfileModal);
+  if (saveBtn) saveBtn.addEventListener('click', saveProfile);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   loadSession();
   bindNav();
   bindWallet();
   bindUpload();
+  bindProfileModal();
   updateWalletUI();
   setView('feed');
 });

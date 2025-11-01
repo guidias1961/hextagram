@@ -1,3 +1,4 @@
+// server.js
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
@@ -16,12 +17,22 @@ const upload = multer({ storage: multer.memoryStorage() });
 const JWT_SECRET = process.env.JWT_SECRET || "hextagram_secret";
 const PORT = process.env.PORT || 3000;
 
-// 1) middlewares básicos
+const publicDir = path.join(__dirname, "public");
+const uploadsDir = path.join(publicDir, "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const HAS_STORACHA =
+  process.env.STORACHA_KEY &&
+  process.env.STORACHA_PROOF &&
+  process.env.STORACHA_SPACE_DID;
+
+let storachaClient = null;
+
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
-app.use(express.urlencoded({ extended: true }));
-
-// 2) ROTAS DE API VÊM PRIMEIRO
+app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
 function auth(req, res, next) {
   const h = req.headers.authorization;
@@ -35,7 +46,13 @@ function auth(req, res, next) {
   }
 }
 
-// login simples
+function guessMediaType(url) {
+  const u = url.split("?")[0].toLowerCase();
+  if (u.endsWith(".mp4") || u.endsWith(".webm") || u.endsWith(".mov")) return "video";
+  return "image";
+}
+
+// AUTH
 app.post("/api/auth/simple", async (req, res) => {
   const { address } = req.body;
   if (!address) return res.status(400).json({ error: "address required" });
@@ -52,41 +69,43 @@ app.post("/api/auth/simple", async (req, res) => {
   res.json({ token, address: address.toLowerCase() });
 });
 
-function guessMediaType(url) {
-  const u = url.split("?")[0].toLowerCase();
-  if (u.endsWith(".mp4") || u.endsWith(".webm") || u.endsWith(".mov")) return "video";
-  return "image";
-}
-
-const publicDir = path.join(__dirname, "public");
-const uploadsDir = path.join(publicDir, "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// upload
+// UPLOAD
 app.post("/api/upload-media", auth, upload.single("media"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "no file" });
+
+    if (HAS_STORACHA && storachaClient) {
+      const file = new File([req.file.buffer], req.file.originalname, {
+        type: req.file.mimetype
+      });
+      const cid = await storachaClient.uploadFile(file);
+      const mediaUrl = `https://${cid}.ipfs.storacha.link/${req.file.originalname}`;
+      return res.json({
+        success: true,
+        media_url: mediaUrl,
+        media_type: guessMediaType(mediaUrl),
+        storage: "storacha"
+      });
+    }
 
     const filename =
       Date.now() + "-" + req.file.originalname.replace(/\s+/g, "_").toLowerCase();
     const filepath = path.join(uploadsDir, filename);
     fs.writeFileSync(filepath, req.file.buffer);
     const mediaUrl = `/uploads/${filename}`;
-
     return res.json({
       success: true,
       media_url: mediaUrl,
-      media_type: guessMediaType(mediaUrl)
+      media_type: guessMediaType(mediaUrl),
+      storage: "local"
     });
   } catch (err) {
     console.error("upload error", err);
-    return res.status(500).json({ error: "upload failed" });
+    return res.status(500).json({ error: "upload failed", detail: err.message });
   }
 });
 
-// criar post
+// CRIAR POST
 app.post("/api/posts", auth, async (req, res) => {
   try {
     const { media_url, caption, media_type } = req.body;
@@ -105,12 +124,12 @@ app.post("/api/posts", auth, async (req, res) => {
 
     res.status(201).json(r.rows[0]);
   } catch (err) {
-    console.error("create post error:", err);
+    console.error("create post:", err);
     res.status(500).json({ error: "failed to create post" });
   }
 });
 
-// listar posts
+// LISTAR POSTS
 app.get("/api/posts", async (req, res) => {
   try {
     const r = await query(
@@ -126,26 +145,76 @@ app.get("/api/posts", async (req, res) => {
     );
     res.json(r.rows);
   } catch (err) {
-    console.error("get posts error:", err);
-    // garante que NUNCA devolve HTML
-    res.status(500).json({ error: "failed to fetch posts", detail: err.message });
+    console.error("get posts:", err);
+    res.status(500).json({ error: "failed to fetch posts" });
   }
 });
 
-// 3) estáticos vêm DEPOIS das APIs
+// GET PROFILE
+app.get("/api/profile/me", auth, async (req, res) => {
+  const r = await query(
+    `SELECT address, username, bio, avatar_url, created_at
+       FROM users
+      WHERE address = $1`,
+    [req.user.address]
+  );
+  if (r.rows.length === 0) {
+    return res.json({ address: req.user.address, username: null, bio: null, avatar_url: null });
+  }
+  res.json(r.rows[0]);
+});
+
+// UPDATE PROFILE
+app.put("/api/profile", auth, async (req, res) => {
+  const { username, bio, avatar_url } = req.body;
+  await query(
+    `UPDATE users
+        SET username = $1,
+            bio = $2,
+            avatar_url = $3
+      WHERE address = $4`,
+    [username || null, bio || null, avatar_url || null, req.user.address]
+  );
+  res.json({ ok: true });
+});
+
+// HEALTH
+app.get("/api/health", (req, res) => {
+  res.json({ ok: true });
+});
+
+// estáticos
 app.use(express.static(publicDir));
 app.use("/uploads", express.static(uploadsDir));
 
-// 4) catch-all por último
+// catch-all
 app.get("*", (req, res) => {
   res.sendFile(path.join(publicDir, "index.html"));
 });
 
 async function start() {
   await initDb();
-  // só pra garantir: se já tem posts sem media_type, corrige
+  // garante media_type
   await query(`UPDATE posts SET media_type = 'image' WHERE media_type IS NULL`, []);
+
+  if (HAS_STORACHA) {
+    try {
+      const { create } = await import("@storacha/client");
+      storachaClient = await create({
+        principal: process.env.STORACHA_KEY,
+        proof: process.env.STORACHA_PROOF,
+        space: process.env.STORACHA_SPACE_DID
+      });
+      console.log("Storacha conectado");
+    } catch (err) {
+      console.warn("Falha ao iniciar Storacha:", err.message);
+    }
+  } else {
+    console.log("Storacha não configurado, usando local");
+  }
+
   app.listen(PORT, () => console.log("Hextagram na porta", PORT));
 }
+
 start();
 
