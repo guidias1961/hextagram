@@ -1,3 +1,9 @@
+// public/app.js
+
+let jwtToken = null;
+let currentAddress = null;
+let cfDeliveryUrl = "";
+
 const feedEl = document.getElementById("feed-posts");
 const myPostsEl = document.getElementById("my-posts");
 const walletAddressEl = document.getElementById("wallet-address");
@@ -9,9 +15,7 @@ const cancelUpload = document.getElementById("cancel-upload");
 const doUpload = document.getElementById("do-upload");
 const uploadStatus = document.getElementById("upload-status");
 
-let jwtToken = null;
-let currentAddress = null;
-let cfDeliveryUrl = "";
+console.log("Hextagram frontend loaded");
 
 document.querySelectorAll(".nav-btn").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -21,14 +25,16 @@ document.querySelectorAll(".nav-btn").forEach(btn => {
     document.querySelectorAll(".page").forEach(pg => pg.classList.remove("visible"));
     if (page) {
       document.getElementById(page).classList.add("visible");
-      if (page === "profile") {
-        loadMyPosts();
-      }
+      if (page === "profile") loadMyPosts();
     }
   });
 });
 
 btnUpload.addEventListener("click", () => {
+  if (!jwtToken) {
+    alert("Connect the wallet first");
+    return;
+  }
   uploadModal.classList.remove("hidden");
 });
 
@@ -38,66 +44,77 @@ cancelUpload.addEventListener("click", () => {
 });
 
 btnConnect.addEventListener("click", async () => {
+  console.log("Connect Wallet clicked");
   await connectWallet();
 });
 
-async function connectWallet() {
-  if (!window.ethereum) {
-    alert("Metamask not found");
-    return;
-  }
-  const provider = new ethers.BrowserProvider(window.ethereum);
-  const accounts = await provider.send("eth_requestAccounts", []);
-  const address = accounts[0];
-
-  let chainId = "0x0";
-  try {
-    chainId = await provider.send("eth_chainId", []);
-  } catch (e) {}
-
-  if (chainId !== "0x171") {
-    try {
-      await provider.send("wallet_switchEthereumChain", [{ chainId: "0x171" }]);
-    } catch (e) {
-      alert("Add PulseChain 369 on Metamask and try again");
-      return;
-    }
-  }
-
-  currentAddress = address;
-  walletAddressEl.textContent = shortAddr(address);
-  profileAddressEl.textContent = address;
-
-  const nonceRes = await fetch(`/api/auth/nonce/${address}`);
-  const { nonce } = await nonceRes.json();
-
-  const signer = await provider.getSigner();
-  const message = `Hextagram login on PulseChain, nonce: ${nonce}`;
-  let signature;
-  try {
-    signature = await signer.signMessage(message);
-  } catch (e) {
-    alert("Signature rejected");
-    return;
-  }
-
-  const verifyRes = await fetch("/api/auth/verify", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ address, signature })
-  });
-  const data = await verifyRes.json();
-  if (data.token) {
-    jwtToken = data.token;
-    await loadCfConfig();
-    loadFeed();
-  } else {
-    alert("Auth error");
-  }
-}
-
 function shortAddr(a) {
   return a.slice(0, 6) + "..." + a.slice(-4);
+}
+
+async function connectWallet() {
+  if (!window.ethereum) {
+    alert("Metamask not detected");
+    return;
+  }
+
+  try {
+    // 1) pedir conta direto na metamask
+    const accounts = await window.ethereum.request({
+      method: "eth_requestAccounts"
+    });
+    const address = accounts[0];
+    console.log("Address", address);
+
+    // 2) garantir chain 369
+    let chainId = await window.ethereum.request({ method: "eth_chainId" });
+    if (chainId !== "0x171") {
+      try {
+        await window.ethereum.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: "0x171" }]
+        });
+      } catch (e) {
+        alert("Add PulseChain (chainId 369) in Metamask and try again");
+        console.error(e);
+        return;
+      }
+    }
+
+    currentAddress = address;
+    walletAddressEl.textContent = shortAddr(address);
+    profileAddressEl.textContent = address;
+
+    // 3) pegar nonce no backend
+    const nonceRes = await fetch(`/api/auth/nonce/${address}`);
+    const { nonce } = await nonceRes.json();
+
+    // 4) assinar usando ethers mas só agora
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const message = `Hextagram login on PulseChain, nonce: ${nonce}`;
+    const signature = await signer.signMessage(message);
+
+    // 5) verificar no backend
+    const verifyRes = await fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address, signature })
+    });
+    const data = await verifyRes.json();
+    if (!data.token) {
+      alert("Auth failed");
+      console.error("verify error", data);
+      return;
+    }
+
+    jwtToken = data.token;
+    await loadCfConfig();
+    await loadFeed();
+  } catch (err) {
+    console.error("connectWallet error", err);
+    alert(err.message || "Wallet error");
+  }
 }
 
 async function loadCfConfig() {
@@ -210,15 +227,14 @@ async function loadComments(postId) {
 async function loadMyPosts() {
   const res = await fetch("/api/posts");
   const posts = await res.json();
-  const mine = posts.filter(p => currentAddress && p.user_address.toLowerCase() === currentAddress.toLowerCase());
+  const mine = posts.filter(
+    p => currentAddress && p.user_address.toLowerCase() === currentAddress.toLowerCase()
+  );
   myPostsEl.innerHTML = "";
   mine.forEach(p => {
     const item = document.createElement("div");
     item.className = "post-card";
-    item.innerHTML = `
-      <img src="${p.media_url}">
-      <div class="post-caption">${p.caption || ""}</div>
-    `;
+    item.innerHTML = `<img src="${p.media_url}"><div class="post-caption">${p.caption || ""}</div>`;
     myPostsEl.appendChild(item);
   });
 }
@@ -235,8 +251,7 @@ doUpload.addEventListener("click", async () => {
     return;
   }
   const file = fileInput.files[0];
-
-  uploadStatus.textContent = "Getting Cloudflare upload URL...";
+  uploadStatus.textContent = "Getting Cloudflare URL...";
 
   const urlRes = await fetch("/api/cf/image-url", {
     method: "POST",
@@ -246,36 +261,33 @@ doUpload.addEventListener("click", async () => {
   });
   const urlData = await urlRes.json();
   if (!urlData.uploadURL) {
-    uploadStatus.textContent = "Error getting upload URL";
+    uploadStatus.textContent = "Cloudflare not configured";
     return;
   }
 
-  uploadStatus.textContent = "Uploading to Cloudflare...";
-
   const formData = new FormData();
   formData.append("file", file);
-
   const upRes = await fetch(urlData.uploadURL, {
     method: "POST",
     body: formData
   });
   const upData = await upRes.json();
   if (!upData.success) {
-    uploadStatus.textContent = "Cloudflare upload failed";
+    uploadStatus.textContent = "Upload failed";
     return;
   }
 
   let publicUrl;
   if (cfDeliveryUrl) {
     publicUrl = cfDeliveryUrl.replace(/\/$/, "") + "/" + upData.result.id + "/public";
-  } else if (upData.result.variants && upData.result.variants.length > 0) {
+  } else if (upData.result.variants && upData.result.variants.length) {
     publicUrl = upData.result.variants[0];
   } else {
-    uploadStatus.textContent = "Could not determine image URL";
+    uploadStatus.textContent = "No public URL";
     return;
   }
 
-  uploadStatus.textContent = "Saving on Hextagram...";
+  uploadStatus.textContent = "Saving post...";
 
   const save = await fetch("/api/posts", {
     method: "POST",
@@ -301,5 +313,6 @@ doUpload.addEventListener("click", async () => {
   }
 });
 
+// carrega feed sem login
 loadFeed();
 
