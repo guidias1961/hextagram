@@ -1,224 +1,200 @@
 // public/app.js
+
 const API_BASE = "";
-// endpoint que você passou
-const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/dg2xpadhr/upload";
-// tem que existir no Cloudinary
+const CLOUDINARY_UPLOAD_URL = "https://api.cloudinary.com/v1_1/dg2xpadhr/upload";
 const CLOUDINARY_UPLOAD_PRESET = "hextagram_unsigned";
 
-let jwtToken = null;
+let authToken = null;
 let currentAddress = null;
 
-const navButtons = document.querySelectorAll(".nav-btn");
-const views = document.querySelectorAll(".view");
-const connectBtn = document.getElementById("connect-wallet");
-const walletLabel = document.getElementById("wallet-label");
+const feedView = document.getElementById("feedView");
+const profileView = document.getElementById("profileView");
+const uploadView = document.getElementById("uploadView");
+const feedList = document.getElementById("feedList");
+const myPosts = document.getElementById("myPosts");
+const connectBtn = document.getElementById("connectBtn");
+const walletStatus = document.getElementById("walletStatus");
+const profileAddress = document.getElementById("profileAddress");
+const profileUsername = document.getElementById("profileUsername");
+const profileBio = document.getElementById("profileBio");
+const profileAvatar = document.getElementById("profileAvatar");
+const profileAvatarFile = document.getElementById("profileAvatarFile");
+const uploadFile = document.getElementById("uploadFile");
+const uploadCaption = document.getElementById("uploadCaption");
+const uploadBtn = document.getElementById("uploadBtn");
+const uploadStatus = document.getElementById("uploadStatus");
 
-navButtons.forEach((btn) => {
+document.querySelectorAll(".nav-btn").forEach(btn => {
   btn.addEventListener("click", () => {
+    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
     const view = btn.dataset.view;
-    views.forEach((v) => v.classList.remove("active"));
-    document.getElementById(`view-${view}`).classList.add("active");
-    if (view === "feed") loadFeed();
-    if (view === "profile") loadProfile();
+    [feedView, profileView, uploadView].forEach(v => v.classList.remove("active"));
+    if (view === "feed") feedView.classList.add("active");
+    if (view === "profile") profileView.classList.add("active");
+    if (view === "upload") uploadView.classList.add("active");
   });
 });
 
+async function fetchFeed() {
+  const r = await fetch("/api/posts");
+  const data = await r.json();
+  renderFeed(data, feedList);
+}
+
+function renderFeed(posts, container) {
+  container.innerHTML = "";
+  posts.forEach(p => {
+    const div = document.createElement("div");
+    div.className = "post";
+    div.innerHTML = `
+      <div class="post-head">
+        <img src="${p.avatar_url || "https://placehold.co/48x48"}" />
+        <div>
+          <div>${p.username || p.address || "anon"}</div>
+          <small>${new Date(p.created_at).toLocaleString()}</small>
+        </div>
+      </div>
+      <img src="${p.media_url}" />
+      ${p.caption ? `<div style="padding:10px 12px 14px 12px">${p.caption}</div>` : ""}
+    `;
+    container.appendChild(div);
+  });
+}
+
 async function connectWallet() {
   if (!window.ethereum) {
-    alert("Instala Metamask");
+    alert("Metamask não encontrada");
     return;
   }
-  try {
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    await provider.send("eth_requestAccounts", []);
-    let network = await provider.getNetwork();
-    if (network.chainId !== 369) {
-      // PulseChain chainId 369
-      await provider.send("wallet_switchEthereumChain", [{ chainId: "0x171" }]);
-      network = await provider.getNetwork();
-    }
+  const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+  const address = accounts[0];
+  currentAddress = address;
+  walletStatus.textContent = address.slice(0, 6) + "..." + address.slice(-4);
 
-    const signer = provider.getSigner();
-    const address = (await signer.getAddress()).toLowerCase();
-    const message = "Hextagram login " + new Date().toISOString();
-    const signature = await signer.signMessage(message);
+  const message = "Hextagram login " + Date.now();
+  const signature = await window.ethereum.request({
+    method: "personal_sign",
+    params: [message, address]
+  });
 
-    const res = await fetch("/api/auth", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address, message, signature })
-    });
+  const r = await fetch("/api/auth", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address, message, signature })
+  });
+  const data = await r.json();
+  authToken = data.token;
 
-    const data = await res.json();
-    if (data.token) {
-      jwtToken = data.token;
-      currentAddress = data.address;
-      walletLabel.textContent = currentAddress.slice(0, 6) + "..." + currentAddress.slice(-4);
-      connectBtn.textContent = "Connected";
-      loadFeed();
-      loadProfile();
-    } else {
-      alert("auth fail");
-    }
-  } catch (err) {
-    console.error(err);
-    alert("Erro ao conectar");
-  }
+  loadMyProfile();
 }
 
 connectBtn.addEventListener("click", connectWallet);
 
-// feed
-async function loadFeed() {
-  const container = document.getElementById("feed-list");
-  container.innerHTML = "Loading...";
-  const res = await fetch("/api/posts");
-  const posts = await res.json();
-  container.innerHTML = "";
-  posts.forEach((p) => {
-    const el = document.createElement("div");
-    el.className = "post-card";
-    el.innerHTML = `
-      <div class="post-head">
-        <img src="${p.avatar_url || "/avatar-placeholder.png"}" class="post-avatar" />
-        <div>
-          <div class="post-user">${p.username || p.address?.slice(0, 10) || "anon"}</div>
-          <div class="post-time">${new Date(p.created_at).toLocaleString()}</div>
-        </div>
-      </div>
-      <div class="post-media">
-        ${p.media_url.endsWith(".mp4") ? `<video src="${p.media_url}" controls></video>` : `<img src="${p.media_url}" />`}
-      </div>
-      <div class="post-caption">${p.caption || ""}</div>
-    `;
-    container.appendChild(el);
+async function loadMyProfile() {
+  if (!authToken) return;
+  const r = await fetch("/api/profile/me", {
+    headers: { Authorization: "Bearer " + authToken }
   });
+  const data = await r.json();
+  profileAddress.textContent = currentAddress;
+  profileUsername.value = data?.username || "";
+  profileBio.value = data?.bio || "";
+  profileAvatar.src = data?.avatar_url || "https://placehold.co/96x96";
+  loadMyPosts();
 }
 
-// profile
-async function loadProfile() {
-  if (!jwtToken) {
-    document.getElementById("profile-address").textContent = "Connect wallet";
+document.getElementById("saveProfileBtn").addEventListener("click", async () => {
+  if (!authToken) {
+    alert("Conecte a wallet");
     return;
   }
-  const res = await fetch("/api/profile/me", {
-    headers: { Authorization: "Bearer " + jwtToken }
-  });
-  const p = await res.json();
-  document.getElementById("profile-address").textContent = p?.address || currentAddress;
-  document.getElementById("profile-username").value = p?.username || "";
-  document.getElementById("profile-bio").value = p?.bio || "";
-  document.getElementById("profile-avatar").src = p?.avatar_url || "/avatar-placeholder.png";
-
-  // carregar meus posts
-  const postsRes = await fetch("/api/posts");
-  const posts = await postsRes.json();
-  const myPosts = posts.filter((x) => x.address === currentAddress);
-  const list = document.getElementById("my-posts");
-  list.innerHTML = "";
-  myPosts.forEach((p2) => {
-    const el = document.createElement("div");
-    el.className = "my-post-card";
-    el.innerHTML = `<img src="${p2.media_url}" />`;
-    list.appendChild(el);
-  });
-}
-
-document.getElementById("profile-save").addEventListener("click", async () => {
-  if (!jwtToken) {
-    alert("Conecta primeiro");
-    return;
-  }
-  const username = document.getElementById("profile-username").value;
-  const bio = document.getElementById("profile-bio").value;
-  const avatar_url = document.getElementById("profile-avatar").src;
-
-  const res = await fetch("/api/profile", {
+  const body = {
+    username: profileUsername.value,
+    bio: profileBio.value,
+    avatar_url: profileAvatar.src
+  };
+  await fetch("/api/profile", {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
-      Authorization: "Bearer " + jwtToken
+      Authorization: "Bearer " + authToken
     },
-    body: JSON.stringify({ username, bio, avatar_url })
+    body: JSON.stringify(body)
   });
-  const data = await res.json();
-  document.getElementById("profile-avatar").src = data.avatar_url || "/avatar-placeholder.png";
+  alert("saved");
 });
 
-// avatar upload
-document.getElementById("avatar-upload-btn").addEventListener("click", () => {
-  document.getElementById("avatar-file").click();
-});
-
-document.getElementById("avatar-file").addEventListener("change", async (e) => {
+profileAvatarFile.addEventListener("change", async e => {
   const file = e.target.files[0];
   if (!file) return;
+  uploadStatus.textContent = "uploading avatar...";
   const fd = new FormData();
   fd.append("file", file);
   fd.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-
-  const up = await fetch(CLOUDINARY_URL, {
+  const r = await fetch(CLOUDINARY_UPLOAD_URL, {
     method: "POST",
     body: fd
   });
-  const json = await up.json();
-  if (json.secure_url) {
-    document.getElementById("profile-avatar").src = json.secure_url;
+  const data = await r.json();
+  if (data.secure_url) {
+    profileAvatar.src = data.secure_url;
+    uploadStatus.textContent = "";
   } else {
-    alert("Cloudinary avatar upload error");
+    uploadStatus.textContent = "avatar upload fail";
   }
 });
 
-// upload post
-document.getElementById("upload-btn").addEventListener("click", async () => {
-  const status = document.getElementById("upload-status");
-  status.textContent = "";
-  if (!jwtToken) {
-    alert("Conecta primeiro");
+uploadBtn.addEventListener("click", async () => {
+  if (!authToken) {
+    alert("Conecte a wallet");
     return;
   }
-  const fileInput = document.getElementById("upload-file");
-  const file = fileInput.files[0];
+  const file = uploadFile.files[0];
   if (!file) {
-    alert("Selecione um arquivo");
+    alert("selecione um arquivo");
     return;
   }
-  const caption = document.getElementById("upload-caption").value;
-
+  uploadStatus.textContent = "enviando para cloudinary...";
   const fd = new FormData();
   fd.append("file", file);
   fd.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-
-  status.textContent = "Uploading to Cloudinary...";
-  const up = await fetch(CLOUDINARY_URL, {
+  const r = await fetch(CLOUDINARY_UPLOAD_URL, {
     method: "POST",
     body: fd
   });
-  const json = await up.json();
-  if (!json.secure_url) {
-    console.error(json);
-    status.textContent = "Cloudinary error";
+  const data = await r.json();
+  if (!data.secure_url) {
+    uploadStatus.textContent = "erro cloudinary";
     return;
   }
-  const mediaUrl = json.secure_url;
+  uploadStatus.textContent = "salvando no hextagram...";
 
-  status.textContent = "Saving post...";
-  const res = await fetch("/api/posts", {
+  await fetch("/api/posts", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: "Bearer " + jwtToken
+      Authorization: "Bearer " + authToken
     },
-    body: JSON.stringify({ media_url: mediaUrl, caption })
+    body: JSON.stringify({
+      media_url: data.secure_url,
+      caption: uploadCaption.value
+    })
   });
-  const data = await res.json();
-  if (data.id) {
-    status.textContent = "Done";
-    document.getElementById("upload-file").value = "";
-    document.getElementById("upload-caption").value = "";
-    loadFeed();
-  } else {
-    status.textContent = "Backend error";
-  }
+
+  uploadStatus.textContent = "ok";
+  uploadFile.value = "";
+  uploadCaption.value = "";
+  fetchFeed();
+  loadMyPosts();
 });
+
+async function loadMyPosts() {
+  const r = await fetch("/api/posts");
+  const data = await r.json();
+  const mine = data.filter(p => p.address?.toLowerCase() === currentAddress?.toLowerCase());
+  renderFeed(mine, myPosts);
+}
+
+fetchFeed();
 

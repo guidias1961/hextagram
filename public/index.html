@@ -2,77 +2,60 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Hextagram for PulseChain</title>
+    <title>Hextagram</title>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <link rel="stylesheet" href="/styles.css" />
-    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <div id="app">
       <aside class="sidebar">
-        <div class="logo">
-          <div class="logo-circle">H</div>
-          <div class="logo-text">Hextagram</div>
-        </div>
+        <div class="logo">Hextagram</div>
         <button class="nav-btn" data-view="feed">Feed</button>
         <button class="nav-btn" data-view="profile">Profile</button>
         <button class="nav-btn" data-view="upload">Upload</button>
         <div class="wallet-box">
-          <span id="wallet-label">Not connected</span>
-          <button id="connect-wallet" class="connect-btn">Connect Wallet</button>
+          <div id="walletStatus">Not connected</div>
+          <button id="connectBtn">Connect Wallet</button>
         </div>
       </aside>
-      <main class="main">
+      <main class="content">
         <header class="topbar">
-          <input id="search" class="search" placeholder="Search on Hextagram" />
-          <div class="pc-pill">PulseChain</div>
+          <input id="searchInput" placeholder="Search on Hextagram" />
+          <div class="network-pill">PulseChain</div>
         </header>
-        <div id="view-feed" class="view active">
-          <div class="stories">
-            <div class="story-pulse">NPulse</div>
-            <div class="story-pulse">PX402</div>
-            <div class="story-pulse">HEX</div>
-            <div class="story-pulse">PLS</div>
-            <div class="story-pulse">PLSX</div>
-          </div>
-          <div id="feed-list"></div>
-        </div>
-        <div id="view-profile" class="view">
-          <div class="profile-box">
-            <div class="profile-left">
-              <div class="avatar-wrap">
-                <img id="profile-avatar" src="/avatar-placeholder.png" alt="avatar" />
-                <input type="file" id="avatar-file" accept="image/*" style="display:none" />
-                <button id="avatar-upload-btn" class="small-btn">Change avatar</button>
-              </div>
-              <div class="address" id="profile-address"></div>
+
+        <section id="feedView" class="view active">
+          <div id="feedList" class="feed-list"></div>
+        </section>
+
+        <section id="profileView" class="view">
+          <div id="profileCard" class="profile-card">
+            <div class="avatar-wrap">
+              <img id="profileAvatar" src="https://placehold.co/96x96" />
+              <input id="profileAvatarFile" type="file" accept="image/*" />
             </div>
-            <div class="profile-right">
-              <label>Username</label>
-              <input id="profile-username" placeholder="ex. pulse.degen" />
-              <label>Bio</label>
-              <textarea id="profile-bio" placeholder="write about you"></textarea>
-              <button id="profile-save" class="primary-btn">Save profile</button>
-            </div>
+            <div class="addr" id="profileAddress"></div>
+            <input id="profileUsername" placeholder="ex. pulse.degen" />
+            <textarea id="profileBio" placeholder="write about you"></textarea>
+            <button id="saveProfileBtn">Save profile</button>
           </div>
-          <h3>My posts</h3>
-          <div id="my-posts"></div>
-        </div>
-        <div id="view-upload" class="view">
+          <h2>My posts</h2>
+          <div id="myPosts" class="feed-list"></div>
+        </section>
+
+        <section id="uploadView" class="view">
           <div class="card">
             <h2>New post</h2>
-            <p>Upload direto para Cloudinary</p>
-            <label>Select image</label>
-            <input type="file" id="upload-file" accept="image/*,video/*" />
-            <label>Caption</label>
-            <textarea id="upload-caption"></textarea>
-            <button id="upload-btn" class="primary-btn">Upload</button>
-            <div id="upload-status" class="status"></div>
+            <p>Upload direto via Cloudinary</p>
+            <input id="uploadFile" type="file" accept="image/*,video/*" />
+            <textarea id="uploadCaption" placeholder="Caption"></textarea>
+            <button id="uploadBtn">Upload</button>
+            <div id="uploadStatus"></div>
           </div>
-        </div>
+        </section>
       </main>
     </div>
-    <script src="/app.js"></script>
+    <script src="app.js"></script>
   </body>
 </html>
 

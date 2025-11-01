@@ -15,7 +15,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "15mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 await initDb();
@@ -39,29 +39,29 @@ app.post("/api/auth", async (req, res) => {
       return res.status(401).json({ error: "signature invalid" });
     }
 
+    const addr = address.toLowerCase();
+
     await query(
       `insert into users (address) values ($1)
        on conflict (address) do nothing`,
-      [address.toLowerCase()]
+      [addr]
     );
 
-    const token = jwt.sign(
-      { address: address.toLowerCase() },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const token = jwt.sign({ address: addr }, JWT_SECRET, {
+      expiresIn: "7d"
+    });
 
-    res.json({ token, address: address.toLowerCase() });
+    res.json({ token, address: addr });
   } catch (err) {
     console.error("auth error", err);
-    res.status(500).json({ error: "auth fail" });
+    res.status(500).json({ error: "auth failed" });
   }
 });
 
 function auth(req, res, next) {
-  const auth = req.headers.authorization;
-  if (!auth) return res.status(401).json({ error: "no token" });
-  const token = auth.split(" ")[1];
+  const h = req.headers.authorization;
+  if (!h) return res.status(401).json({ error: "no token" });
+  const token = h.split(" ")[1];
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.user = payload;
@@ -72,83 +72,71 @@ function auth(req, res, next) {
 }
 
 app.get("/api/profile/me", auth, async (req, res) => {
-  const address = req.user.address;
+  const addr = req.user.address;
   const r = await query(
     "select address, username, bio, avatar_url from users where address=$1",
-    [address]
-  );
-  res.json(r.rows[0] || null);
-});
-
-app.get("/api/profile/:address", async (req, res) => {
-  const r = await query(
-    "select address, username, bio, avatar_url from users where address=$1",
-    [req.params.address.toLowerCase()]
+    [addr]
   );
   res.json(r.rows[0] || null);
 });
 
 app.put("/api/profile", auth, async (req, res) => {
-  const address = req.user.address;
+  const addr = req.user.address;
   const { username, bio, avatar_url } = req.body;
+
   await query(
-    `update users set
-       username = $1,
-       bio = $2,
-       avatar_url = $3
-     where address = $4`,
-    [username || null, bio || null, avatar_url || null, address]
+    `update users
+     set username=$1, bio=$2, avatar_url=$3
+     where address=$4`,
+    [username || null, bio || null, avatar_url || null, addr]
   );
+
   const r = await query(
     "select address, username, bio, avatar_url from users where address=$1",
-    [address]
+    [addr]
   );
   res.json(r.rows[0]);
 });
 
 app.post("/api/posts", auth, async (req, res) => {
-  const address = req.user.address;
-  const { media_url, caption } = req.body;
-  if (!media_url) return res.status(400).json({ error: "media_url required" });
+  try {
+    const addr = req.user.address;
+    const { media_url, caption } = req.body;
 
-  const r = await query(
-    `insert into posts (address, media_url, caption)
-     values ($1, $2, $3)
-     returning *`,
-    [address, media_url, caption || null]
-  );
+    if (!media_url) {
+      return res.status(400).json({ error: "media_url required" });
+    }
 
-  res.json(r.rows[0]);
+    const r = await query(
+      `insert into posts (user_address, address, media_url, caption)
+       values ($1, $1, $2, $3)
+       returning id, user_address, address, media_url, caption, created_at`,
+      [addr, media_url, caption || null]
+    );
+
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error("create post error", err);
+    res.status(500).json({ error: "create post failed" });
+  }
 });
 
 app.get("/api/posts", async (req, res) => {
-  try {
-    const r = await query(
-      `select
-         p.id,
-         p.media_url,
-         p.caption,
-         p.created_at,
-         p.address,
-         u.username,
-         u.avatar_url
-       from posts p
-       left join users u on u.address = p.address
-       order by p.created_at desc
-       limit 100`
-    );
-    res.json(r.rows);
-  } catch (err) {
-    // fallback se por algum motivo não deu tempo de alterar a tabela
-    console.error("feed query error", err);
-    const r2 = await query(
-      `select id, media_url, caption, created_at
-       from posts
-       order by created_at desc
-       limit 100`
-    );
-    res.json(r2.rows);
-  }
+  const r = await query(
+    `select
+       p.id,
+       coalesce(p.address, p.user_address) as address,
+       p.media_url,
+       p.caption,
+       p.created_at,
+       u.username,
+       u.avatar_url
+     from posts p
+     left join users u on u.address = coalesce(p.address, p.user_address)
+     order by p.created_at desc
+     limit 100`
+  );
+  res.json(r.rows);
 });
 
 app.get("*", (req, res) => {
