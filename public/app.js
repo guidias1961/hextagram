@@ -1,39 +1,5 @@
 const API_BASE = `${window.location.origin}/api`;
 
-const $ = id => document.getElementById(id);
-
-const els = {
-  feedBtn: $('nav-feed'),
-  exploreBtn: $('nav-explore'),
-  createBtn: $('nav-create'),
-  profileBtn: $('nav-profile'),
-  connectBtn: $('connect-wallet'),
-  addressLabel: $('wallet-address'),
-  feedList: $('feed-list'),
-  exploreList: $('explore-list'),
-  createForm: $('create-form'),
-  createFileInput: $('create-image'),
-  createPreview: $('create-preview'),
-  createCaption: $('create-caption'),
-  profileBox: $('profile-box'),
-  profilePosts: $('profile-posts'),
-  editModal: $('edit-profile-modal'),
-  editName: $('edit-name'),
-  editBio: $('edit-bio'),
-  editAvatarUrl: $('edit-avatar-url'),
-  editAvatarFile: $('edit-avatar-file'),
-  editCancel: $('edit-cancel'),
-  editSave: $('edit-save'),
-  commentsModal: $('comments-modal'),
-  commentsList: $('comments-list'),
-  commentsInput: $('comments-input'),
-  commentsSend: $('comments-send'),
-  commentsClose: $('comments-close'),
-  postModal: $('post-modal'),
-  postModalContent: $('post-modal-content'),
-  postClose: $('post-close')
-};
-
 const state = {
   address: null,
   token: null,
@@ -43,28 +9,80 @@ const state = {
   viewingExternalProfile: false
 };
 
-function shorten(addr) {
-  if (!addr) return '';
-  return addr.slice(0, 6) + '...' + addr.slice(-4);
+const els = {
+  feedBtn: document.getElementById('nav-feed'),
+  exploreBtn: document.getElementById('nav-explore'),
+  createBtn: document.getElementById('nav-create'),
+  profileBtn: document.getElementById('nav-profile'),
+  connectBtn: document.getElementById('connect-wallet'),
+  addressLabel: document.getElementById('wallet-address'),
+  feedList: document.getElementById('feed-list'),
+  exploreList: document.getElementById('explore-list'),
+  createForm: document.getElementById('create-form'),
+  createFileInput: document.getElementById('create-image'),
+  createPreview: document.getElementById('create-preview'),
+  createCaption: document.getElementById('create-caption'),
+  profileBox: document.getElementById('profile-box'),
+  profilePosts: document.getElementById('profile-posts'),
+  editModal: document.getElementById('edit-profile-modal'),
+  editName: document.getElementById('edit-name'),
+  editBio: document.getElementById('edit-bio'),
+  editAvatarUrl: document.getElementById('edit-avatar-url'),
+  editAvatarFile: document.getElementById('edit-avatar-file'),
+  editCancel: document.getElementById('edit-cancel'),
+  editSave: document.getElementById('edit-save'),
+  commentsModal: document.getElementById('comments-modal'),
+  commentsList: document.getElementById('comments-list'),
+  commentsInput: document.getElementById('comments-input'),
+  commentsSend: document.getElementById('comments-send'),
+  postModal: document.getElementById('post-modal'),
+  postModalContent: document.getElementById('post-modal-content'),
+  postClose: document.getElementById('post-close')
+};
+
+function linkify(text) {
+  if (!text) return '';
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  return text.replace(
+    urlRegex,
+    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
 }
 
 function setView(view) {
   state.currentView = view;
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-  const el = document.getElementById(`${view}-section`);
-  if (el) el.classList.remove('hidden');
+  document.getElementById(`${view}-section`).classList.remove('hidden');
 
   if (view === 'feed') loadFeed();
   if (view === 'explore') loadExplore();
   if (view === 'profile') {
-    if (state.viewingExternalProfile) renderProfile();
-    else loadProfile();
+    if (state.viewingExternalProfile) {
+      renderProfile();
+    } else {
+      loadProfile();
+    }
   }
+}
+
+function setAuth(address, token) {
+  state.address = address;
+  state.token = token;
+  els.addressLabel.textContent = address ? shortenAddress(address) : 'Not connected';
+  if (address) {
+    els.connectBtn.textContent = 'Connected';
+    els.connectBtn.disabled = true;
+  }
+}
+
+function shortenAddress(addr) {
+  if (!addr) return '';
+  return addr.slice(0, 6) + '...' + addr.slice(-4);
 }
 
 async function connectWallet() {
   if (!window.ethereum) {
-    alert('Install Metamask');
+    alert('Install MetaMask');
     return;
   }
   const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
@@ -72,43 +90,52 @@ async function connectWallet() {
   const message = `Login to Hextagram\n${new Date().toISOString()}`;
   const signature = await window.ethereum.request({
     method: 'personal_sign',
-    params: [message, address]
+    params: [message, address],
   });
 
-  const r = await fetch(`${API_BASE}/auth`, {
+  const res = await fetch(`${API_BASE}/auth`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ address, message, signature })
+    body: JSON.stringify({ address, message, signature }),
   });
-  if (!r.ok) {
+  if (!res.ok) {
     alert('Auth failed');
     return;
   }
-  const data = await r.json();
-  state.address = data.address;
-  state.token = data.token;
-  if (els.addressLabel) els.addressLabel.textContent = shorten(data.address);
-  if (els.connectBtn) {
-    els.connectBtn.textContent = 'Connected';
-    els.connectBtn.disabled = true;
-  }
+  const data = await res.json();
+  setAuth(data.address, data.token);
   loadFeed();
   loadProfile();
 }
 
 async function loadFeed() {
-  const r = await fetch(`${API_BASE}/posts`, {
-    headers: state.token ? { Authorization: `Bearer ${state.token}` } : {}
+  const res = await fetch(`${API_BASE}/posts`, {
+    headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
   });
-  const posts = await r.json();
+  const posts = await res.json();
+
+  // pegar até 5 comentários de cada post para mostrar direto no feed
+  for (const post of posts) {
+    if (post.comment_count && post.comment_count > 0) {
+      try {
+        const cres = await fetch(`${API_BASE}/posts/${post.id}/comments`);
+        const all = await cres.json();
+        post.preview_comments = all.slice(0, 5);
+      } catch (e) {
+        post.preview_comments = [];
+      }
+    } else {
+      post.preview_comments = [];
+    }
+  }
+
   state.posts = posts;
   renderFeed();
 }
 
 function renderFeed() {
-  if (!els.feedList) return;
   els.feedList.innerHTML = '';
-  if (!state.posts.length) {
+  if (!state.posts || state.posts.length === 0) {
     els.feedList.innerHTML = '<p class="empty">No posts yet</p>';
     return;
   }
@@ -118,32 +145,63 @@ function renderFeed() {
   });
 }
 
-function createPostCard(post) {
-  const art = document.createElement('article');
-  art.className = 'post-card';
+function openUserProfile(address, username, avatarUrl) {
+  const userPosts = state.posts.filter(p => p.address && p.address.toLowerCase() === address.toLowerCase());
+  state.profile = {
+    address,
+    username: username || (userPosts[0] ? userPosts[0].username : shortenAddress(address)),
+    avatar_url: avatarUrl || (userPosts[0] ? userPosts[0].avatar_url : ''),
+    bio: '',
+    posts_count: userPosts.length,
+    followers_count: 0,
+    following_count: 0
+  };
+  state.viewingExternalProfile = true;
+  setView('profile');
+}
 
-  const head = document.createElement('div');
-  head.className = 'post-header';
+function openPost(post) {
+  els.postModal.classList.remove('hidden');
+  els.postModalContent.innerHTML = '';
+  const card = createPostCard(post);
+  card.classList.add('post-card-modal');
+  els.postModalContent.appendChild(card);
+}
+
+function createPostCard(post) {
+  const card = document.createElement('article');
+  card.className = 'post-card';
+
+  const header = document.createElement('div');
+  header.className = 'post-header';
 
   const avatar = document.createElement('div');
   avatar.className = 'post-avatar';
-  if (post.avatar_url) avatar.style.backgroundImage = `url(${post.avatar_url})`;
-  avatar.addEventListener('click', () => openUserProfile(post.address, post.username, post.avatar_url));
+  if (post.avatar_url) {
+    avatar.style.backgroundImage = `url(${post.avatar_url})`;
+  }
+  if (post.address) {
+    avatar.style.cursor = 'pointer';
+    avatar.addEventListener('click', () => openUserProfile(post.address, post.username, post.avatar_url));
+  }
 
   const user = document.createElement('div');
   user.className = 'post-user';
-  user.innerHTML = `<strong>${post.username || shorten(post.address)}</strong><span>${new Date(post.created_at).toLocaleString()}</span>`;
-  user.addEventListener('click', () => openUserProfile(post.address, post.username, post.avatar_url));
+  user.innerHTML = `<strong>${post.username || shortenAddress(post.address)}</strong><span>${new Date(post.created_at).toLocaleString()}</span>`;
+  if (post.address) {
+    user.style.cursor = 'pointer';
+    user.addEventListener('click', () => openUserProfile(post.address, post.username, post.avatar_url));
+  }
 
-  head.appendChild(avatar);
-  head.appendChild(user);
+  header.appendChild(avatar);
+  header.appendChild(user);
 
-  if (state.address && post.address && state.address.toLowerCase() === post.address.toLowerCase()) {
-    const del = document.createElement('button');
-    del.className = 'ghost small';
-    del.textContent = 'Delete';
-    del.onclick = () => deletePost(post.id);
-    head.appendChild(del);
+  if (state.address && state.address.toLowerCase() === post.address.toLowerCase()) {
+    const delBtn = document.createElement('button');
+    delBtn.className = 'ghost small';
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = () => deletePost(post.id);
+    header.appendChild(delBtn);
   }
 
   const media = document.createElement('div');
@@ -153,111 +211,169 @@ function createPostCard(post) {
     img.src = post.media_url;
     img.alt = post.caption || '';
     media.appendChild(img);
+  } else {
+    media.innerHTML = '<div class="no-media">media not found</div>';
   }
 
-  const caption = document.createElement('div');
+  const caption = document.createElement('p');
   caption.className = 'post-caption';
   caption.textContent = post.caption || '';
 
   const actions = document.createElement('div');
   actions.className = 'post-actions';
 
-  const like = document.createElement('button');
-  like.textContent = post.liked ? `♥ ${post.like_count}` : `♡ ${post.like_count}`;
-  like.onclick = () => toggleLike(post, like);
+  const likeBtn = document.createElement('button');
+  likeBtn.textContent = post.liked ? `♥ ${post.like_count}` : `♡ ${post.like_count}`;
+  likeBtn.onclick = () => toggleLike(post.id);
 
-  const comm = document.createElement('button');
-  comm.textContent = `Comments ${post.comment_count}`;
-  comm.onclick = () => openComments(post);
+  const commentBtn = document.createElement('button');
+  commentBtn.textContent = `Comments ${post.comment_count}`;
+  commentBtn.onclick = () => openComments(post);
 
-  const share = document.createElement('button');
-  share.textContent = 'Share';
+  const shareBtn = document.createElement('button');
+  shareBtn.textContent = 'Share';
+  shareBtn.onclick = () => sharePost(post);
 
-  actions.appendChild(like);
-  actions.appendChild(comm);
-  actions.appendChild(share);
+  actions.appendChild(likeBtn);
+  actions.appendChild(commentBtn);
+  actions.appendChild(shareBtn);
 
-  art.appendChild(head);
-  art.appendChild(media);
-  art.appendChild(caption);
-  art.appendChild(actions);
+  card.appendChild(header);
+  card.appendChild(media);
+  card.appendChild(caption);
+  card.appendChild(actions);
 
-  return art;
+  // comentários no feed
+  if (Array.isArray(post.preview_comments) && post.preview_comments.length) {
+    const commentsBox = document.createElement('div');
+    commentsBox.className = 'post-comments';
+    post.preview_comments.forEach(c => {
+      const row = document.createElement('div');
+      row.className = 'post-comment-item';
+      row.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${linkify(c.content)}`;
+      commentsBox.appendChild(row);
+    });
+    if (post.comment_count > 5) {
+      const more = document.createElement('button');
+      more.className = 'post-comments-more';
+      more.textContent = 'Show more';
+      more.addEventListener('click', () => openComments(post));
+      commentsBox.appendChild(more);
+    }
+    card.appendChild(commentsBox);
+  } else if (post.comment_count > 0) {
+    const commentsBox = document.createElement('div');
+    commentsBox.className = 'post-comments';
+    const more = document.createElement('button');
+    more.className = 'post-comments-more';
+    more.textContent = 'Show comments';
+    more.addEventListener('click', () => openComments(post));
+    commentsBox.appendChild(more);
+    card.appendChild(commentsBox);
+  }
+
+  return card;
 }
 
-async function toggleLike(post, btn) {
+async function toggleLike(postId) {
   if (!state.token) {
-    alert('Connect wallet');
+    alert('Connect wallet first');
     return;
   }
-  const r = await fetch(`${API_BASE}/posts/${post.id}/like`, {
+  const res = await fetch(`${API_BASE}/posts/${postId}/like`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${state.token}` }
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${state.token}`,
+    },
   });
-  const data = await r.json();
-  post.like_count = data.likes;
-  post.liked = data.liked;
-  btn.textContent = post.liked ? `♥ ${post.like_count}` : `♡ ${post.like_count}`;
-}
-
-async function deletePost(id) {
-  if (!state.token) return;
-  if (!confirm('Delete this post?')) return;
-  await fetch(`${API_BASE}/posts/${id}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${state.token}` }
-  });
-  await loadFeed();
-  if (!state.viewingExternalProfile) await loadProfile();
+  const data = await res.json();
+  const idx = state.posts.findIndex(p => p.id === postId);
+  if (idx !== -1) {
+    state.posts[idx].like_count = data.likes;
+    state.posts[idx].liked = data.liked;
+    renderFeed();
+  }
 }
 
 function openComments(post) {
-  if (!els.commentsModal) return;
   els.commentsModal.classList.remove('hidden');
   els.commentsModal.dataset.postId = post.id;
-  if (els.commentsList) els.commentsList.innerHTML = '';
+  document.getElementById('comments-title').textContent = 'Comments';
   loadComments(post.id);
 }
 
 async function loadComments(postId) {
-  const r = await fetch(`${API_BASE}/posts/${postId}/comments`);
-  const items = await r.json();
-  if (!els.commentsList) return;
+  const res = await fetch(`${API_BASE}/posts/${postId}/comments`);
+  const comments = await res.json();
   els.commentsList.innerHTML = '';
-  items.forEach(c => {
-    const div = document.createElement('div');
-    div.className = 'comment-item';
-    div.innerHTML = `<strong>${c.username || shorten(c.user_address)}</strong> ${c.content}`;
-    els.commentsList.appendChild(div);
+  comments.forEach(c => {
+    const item = document.createElement('div');
+    item.className = 'comment-item';
+    item.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${linkify(c.content)}`;
+    els.commentsList.appendChild(item);
   });
 }
 
 async function sendComment() {
-  if (!els.commentsModal) return;
-  const postId = els.commentsModal.dataset.postId;
-  const txt = els.commentsInput.value.trim();
-  if (!txt) return;
+  const postId = Number(els.commentsModal.dataset.postId);
+  const text = els.commentsInput.value.trim();
+  if (!text) return;
   if (!state.token) {
-    alert('Connect wallet');
+    alert('Connect wallet first');
     return;
   }
   await fetch(`${API_BASE}/posts/${postId}/comments`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${state.token}`
+      Authorization: `Bearer ${state.token}`,
     },
-    body: JSON.stringify({ content: txt })
+    body: JSON.stringify({ content: text }),
   });
   els.commentsInput.value = '';
+  // atualiza modal e feed para já aparecer o comentário
   await loadComments(postId);
   await loadFeed();
 }
 
+function closeComments() {
+  els.commentsModal.classList.add('hidden');
+}
+
+function sharePost(post) {
+  const url = `${window.location.origin}/#post-${post.id}`;
+  navigator.clipboard.writeText(url).then(() => {
+    alert('Link copied');
+  });
+}
+
+async function deletePost(postId) {
+  if (!state.token) {
+    alert('Connect wallet first');
+    return;
+  }
+  if (!confirm('Delete this post?')) return;
+  const res = await fetch(`${API_BASE}/posts/${postId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${state.token}`,
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || 'failed to delete');
+    return;
+  }
+  await loadFeed();
+  await loadProfile();
+}
+
+// CREATE POST
 async function submitCreate(e) {
   e.preventDefault();
   if (!state.token) {
-    alert('Connect wallet');
+    alert('Connect wallet first');
     return;
   }
   const file = els.createFileInput.files[0];
@@ -269,31 +385,31 @@ async function submitCreate(e) {
   const formData = new FormData();
   formData.append('media', file);
 
-  const up = await fetch(`${API_BASE}/upload-media`, {
+  const uploadRes = await fetch(`${API_BASE}/upload-media`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${state.token}` },
-    body: formData
+    headers: {
+      Authorization: `Bearer ${state.token}`,
+    },
+    body: formData,
   });
-
-  const upData = await up.json().catch(() => null);
-  if (!up.ok || !upData || !upData.url) {
+  const uploadData = await uploadRes.json();
+  if (!uploadRes.ok || !uploadData.url) {
     alert('Upload failed');
     return;
   }
 
-  const r = await fetch(`${API_BASE}/posts`, {
+  const postRes = await fetch(`${API_BASE}/posts`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${state.token}`
+      Authorization: `Bearer ${state.token}`,
     },
     body: JSON.stringify({
-      media_url: upData.url,
-      caption: els.createCaption.value
-    })
+      media_url: uploadData.url,
+      caption: els.createCaption.value,
+    }),
   });
-
-  if (!r.ok) {
+  if (!postRes.ok) {
     alert('Post failed');
     return;
   }
@@ -317,108 +433,104 @@ function handleCreatePreview() {
   reader.readAsDataURL(file);
 }
 
+// PROFILE
 async function loadProfile() {
   if (!state.token) {
-    if (els.profileBox) els.profileBox.innerHTML = '<p>Connect wallet to see your profile</p>';
+    els.profileBox.innerHTML = '<p>Connect wallet to see your profile</p>';
     return;
   }
-  const r = await fetch(`${API_BASE}/profile/me`, {
-    headers: { Authorization: `Bearer ${state.token}` }
+  const res = await fetch(`${API_BASE}/profile/me`, {
+    headers: { Authorization: `Bearer ${state.token}` },
   });
-  const data = await r.json();
+  const data = await res.json();
   state.profile = data;
   state.viewingExternalProfile = false;
   renderProfile();
 }
 
 function renderProfile() {
-  if (!els.profileBox || !state.profile) return;
   const p = state.profile;
-  const isOwn = state.address && p.address && state.address.toLowerCase() === p.address.toLowerCase();
-  const canFollow = state.token && !isOwn;
+  if (!p) return;
+  const isOwn = !state.viewingExternalProfile && state.address && p.address && state.address.toLowerCase() === p.address.toLowerCase();
 
   els.profileBox.innerHTML = `
     <div class="profile-header">
-      <div class="profile-avatar" style="background-image:${p.avatar_url ? `url(${p.avatar_url})` : 'none'}"></div>
+      <div class="profile-avatar" style="background-image: ${p.avatar_url ? `url(${p.avatar_url})` : 'none'}"></div>
       <div>
-        <h2>${p.username || shorten(p.address)}</h2>
+        <h2>${p.username || shortenAddress(p.address)}</h2>
         <p class="muted">${p.address}</p>
         <p>${p.posts_count} posts • ${p.followers_count} followers • ${p.following_count} following</p>
       </div>
-      ${isOwn
-        ? '<button id="profile-edit-btn" class="ghost">Edit profile</button>'
-        : (canFollow
-          ? `<button id="profile-follow-btn" class="${p.is_following ? 'ghost' : 'primary'}" data-followed="${p.is_following ? '1' : '0'}">${p.is_following ? 'Unfollow' : 'Follow'}</button>`
-          : '')
-      }
+      ${isOwn ? '<button id="profile-edit-btn" class="ghost">Edit profile</button>' : ''}
     </div>
     <p>${p.bio || ''}</p>
   `;
 
   if (isOwn) {
-    const b = document.getElementById('profile-edit-btn');
-    if (b) b.onclick = openEditProfile;
-  } else if (canFollow) {
-    const b = document.getElementById('profile-follow-btn');
-    if (b) b.onclick = () => toggleFollow(p.address);
+    document.getElementById('profile-edit-btn').onclick = openEditProfile;
   }
 
-  if (!els.profilePosts) return;
+  const myPosts = state.posts.filter(post => post.address.toLowerCase() === p.address.toLowerCase());
   els.profilePosts.innerHTML = '';
-  const myPosts = state.posts.filter(post => post.address && post.address.toLowerCase() === p.address.toLowerCase());
   myPosts.forEach(post => {
     if (!post.media_url) return;
-    const d = document.createElement('div');
-    d.className = 'profile-post';
+    const item = document.createElement('div');
+    item.className = 'profile-post';
     const img = document.createElement('img');
     img.src = post.media_url;
-    d.appendChild(img);
-    d.onclick = () => openPost(post);
-    els.profilePosts.appendChild(d);
+    img.alt = post.caption || '';
+    item.appendChild(img);
+    const meta = document.createElement('div');
+    meta.className = 'profile-post-meta';
+    meta.innerHTML = `<span>♡ ${post.like_count}</span><span>Comments ${post.comment_count}</span><span>Share</span>`;
+    item.appendChild(meta);
+    item.addEventListener('click', () => openPost(post));
+    els.profilePosts.appendChild(item);
   });
 }
 
 function openEditProfile() {
-  if (!els.editModal || !state.profile) return;
+  const p = state.profile;
   els.editModal.classList.remove('hidden');
-  els.editName.value = state.profile.username || '';
-  els.editBio.value = state.profile.bio || '';
-  els.editAvatarUrl.value = state.profile.avatar_url || '';
+  els.editName.value = p?.username || '';
+  els.editBio.value = p?.bio || '';
+  els.editAvatarUrl.value = p?.avatar_url || '';
 }
 
 function closeEditProfile() {
-  if (els.editModal) els.editModal.classList.add('hidden');
-  if (els.editAvatarFile) els.editAvatarFile.value = '';
+  els.editModal.classList.add('hidden');
+  els.editAvatarFile.value = '';
 }
 
 async function saveProfile() {
-  if (!state.token) return;
   let avatarUrl = els.editAvatarUrl.value.trim();
 
-  const file = els.editAvatarFile.files[0];
-  if (file) {
-    const form = new FormData();
-    form.append('avatar', file);
-    const r = await fetch(`${API_BASE}/profile/avatar`, {
+  const avatarFile = els.editAvatarFile.files[0];
+  if (avatarFile) {
+    const formData = new FormData();
+    formData.append('avatar', avatarFile);
+    const upload = await fetch(`${API_BASE}/profile/avatar`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${state.token}` },
-      body: form
+      headers: {
+        Authorization: `Bearer ${state.token}`,
+      },
+      body: formData,
     });
-    const d = await r.json();
-    avatarUrl = d.avatar_url;
+    const data = await upload.json();
+    avatarUrl = data.avatar_url;
   }
 
   await fetch(`${API_BASE}/profile`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${state.token}`
+      Authorization: `Bearer ${state.token}`,
     },
     body: JSON.stringify({
       username: els.editName.value.trim(),
       bio: els.editBio.value.trim(),
-      avatar_url: avatarUrl
-    })
+      avatar_url: avatarUrl,
+    }),
   });
 
   closeEditProfile();
@@ -426,106 +538,50 @@ async function saveProfile() {
   await loadFeed();
 }
 
-async function toggleFollow(target) {
-  if (!state.token) return;
-  const isFollowing = state.profile && state.profile.is_following;
-  if (isFollowing) {
-    await fetch(`${API_BASE}/follow/${target}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${state.token}` }
-    });
-  } else {
-    await fetch(`${API_BASE}/follow`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${state.token}`
-      },
-      body: JSON.stringify({ target })
-    });
-  }
-  const r = await fetch(`${API_BASE}/profile/${target}`, {
-    headers: { Authorization: `Bearer ${state.token}` }
-  });
-  state.profile = await r.json();
-  renderProfile();
-}
-
-async function openUserProfile(address, username, avatar) {
-  const lower = address.toLowerCase();
-  if (state.address && state.address.toLowerCase() === lower) {
-    state.viewingExternalProfile = false;
-    setView('profile');
-    return;
-  }
-
-  let data = null;
-  if (state.token) {
-    const r = await fetch(`${API_BASE}/profile/${lower}`, {
-      headers: { Authorization: `Bearer ${state.token}` }
-    });
-    if (r.ok) data = await r.json();
-  }
-
-  if (!data) {
-    data = {
-      address: lower,
-      username: username || shorten(lower),
-      avatar_url: avatar || '',
-      bio: '',
-      posts_count: state.posts.filter(p => p.address && p.address.toLowerCase() === lower).length,
-      followers_count: 0,
-      following_count: 0,
-      is_following: false
-    };
-  }
-
-  state.profile = data;
-  state.viewingExternalProfile = true;
-  setView('profile');
-}
-
-function openPost(post) {
-  if (!els.postModal) return;
-  els.postModal.classList.remove('hidden');
-  els.postModalContent.innerHTML = '';
-  const card = createPostCard(post);
-  els.postModalContent.appendChild(card);
-}
-
+// explore
 async function loadExplore() {
-  if (!els.exploreList) return;
+  const res = await fetch(`${API_BASE}/posts`);
+  const posts = await res.json();
   els.exploreList.innerHTML = '';
-  state.posts.slice(0, 40).forEach(p => {
-    if (!p.media_url) return;
+  posts.forEach(post => {
+    if (!post.media_url) return;
+    const item = document.createElement('div');
+    item.className = 'explore-item';
     const img = document.createElement('img');
-    img.src = p.media_url;
-    img.alt = p.caption || '';
-    img.onclick = () => openPost(p);
-    els.exploreList.appendChild(img);
+    img.src = post.media_url;
+    img.alt = post.caption || '';
+    item.appendChild(img);
+    item.addEventListener('click', () => openPost(post));
+    els.exploreList.appendChild(item);
   });
 }
 
-function init() {
-  if (els.feedBtn) els.feedBtn.onclick = () => setView('feed');
-  if (els.exploreBtn) els.exploreBtn.onclick = () => setView('explore');
-  if (els.createBtn) els.createBtn.onclick = () => setView('create');
-  if (els.profileBtn) els.profileBtn.onclick = () => {
-    state.viewingExternalProfile = false;
-    setView('profile');
-  };
-  if (els.connectBtn) els.connectBtn.onclick = connectWallet;
-  if (els.createForm) els.createForm.onsubmit = submitCreate;
-  if (els.createFileInput) els.createFileInput.onchange = handleCreatePreview;
-  if (els.commentsSend) els.commentsSend.onclick = sendComment;
-  if (els.commentsClose) els.commentsClose.onclick = () => els.commentsModal.classList.add('hidden');
-  if (els.postClose) els.postClose.onclick = () => els.postModal.classList.add('hidden');
-  if (els.editCancel) els.editCancel.onclick = closeEditProfile;
-  if (els.editSave) els.editSave.onclick = saveProfile;
-
+// events
+els.connectBtn.addEventListener('click', connectWallet);
+els.feedBtn.addEventListener('click', () => {
   setView('feed');
-  loadFeed();
-}
+});
+els.exploreBtn.addEventListener('click', () => {
+  setView('explore');
+});
+els.createBtn.addEventListener('click', () => {
+  setView('create');
+});
+els.profileBtn.addEventListener('click', () => {
+  state.viewingExternalProfile = false;
+  setView('profile');
+});
+els.createForm.addEventListener('submit', submitCreate);
+els.createFileInput.addEventListener('change', handleCreatePreview);
+els.editCancel.addEventListener('click', closeEditProfile);
+els.editSave.addEventListener('click', saveProfile);
+document.getElementById('comments-close').addEventListener('click', closeComments);
+els.commentsSend.addEventListener('click', sendComment);
+els.postClose.addEventListener('click', () => {
+  els.postModal.classList.add('hidden');
+});
 
-init();
+// initial
+setView('feed');
+loadFeed();
 

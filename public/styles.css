@@ -39,12 +39,6 @@ body {
   align-items: center;
   gap: 6px;
 }
-.brand-icon {
-  width: 32px;
-  height: 32px;
-  object-fit: contain;
-  border-radius: 12px;
-}
 .brand span {
   font-size: 11px;
   color: var(--muted);
