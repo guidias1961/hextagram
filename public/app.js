@@ -5,7 +5,8 @@ const state = {
   token: null,
   posts: [],
   profile: null,
-  currentView: 'feed'
+  currentView: 'feed',
+  viewingExternalProfile: false
 };
 
 const els = {
@@ -43,7 +44,13 @@ function setView(view) {
 
   if (view === 'feed') loadFeed();
   if (view === 'explore') loadExplore();
-  if (view === 'profile') loadProfile();
+  if (view === 'profile') {
+    if (state.viewingExternalProfile) {
+      renderProfile();
+    } else {
+      loadProfile();
+    }
+  }
 }
 
 function setAuth(address, token) {
@@ -110,6 +117,21 @@ function renderFeed() {
   });
 }
 
+function openUserProfile(address, username, avatarUrl) {
+  const userPosts = state.posts.filter(p => p.address && p.address.toLowerCase() === address.toLowerCase());
+  state.profile = {
+    address,
+    username: username || (userPosts[0] ? userPosts[0].username : shortenAddress(address)),
+    avatar_url: avatarUrl || (userPosts[0] ? userPosts[0].avatar_url : ''),
+    bio: '',
+    posts_count: userPosts.length,
+    followers_count: 0,
+    following_count: 0
+  };
+  state.viewingExternalProfile = true;
+  setView('profile');
+}
+
 function createPostCard(post) {
   const card = document.createElement('article');
   card.className = 'post-card';
@@ -122,10 +144,22 @@ function createPostCard(post) {
   if (post.avatar_url) {
     avatar.style.backgroundImage = `url(${post.avatar_url})`;
   }
+  avatar.style.cursor = 'pointer';
+  avatar.addEventListener('click', () => {
+    if (post.address) {
+      openUserProfile(post.address, post.username, post.avatar_url);
+    }
+  });
 
   const user = document.createElement('div');
   user.className = 'post-user';
   user.innerHTML = `<strong>${post.username || shortenAddress(post.address)}</strong><span>${new Date(post.created_at).toLocaleString()}</span>`;
+  user.style.cursor = 'pointer';
+  user.addEventListener('click', () => {
+    if (post.address) {
+      openUserProfile(post.address, post.username, post.avatar_url);
+    }
+  });
 
   header.appendChild(avatar);
   header.appendChild(user);
@@ -348,12 +382,14 @@ async function loadProfile() {
   });
   const data = await res.json();
   state.profile = data;
+  state.viewingExternalProfile = false;
   renderProfile();
 }
 
 function renderProfile() {
   const p = state.profile;
   if (!p) return;
+  const isOwn = !state.viewingExternalProfile && state.address && p.address && state.address.toLowerCase() === p.address.toLowerCase();
 
   els.profileBox.innerHTML = `
     <div class="profile-header">
@@ -363,12 +399,14 @@ function renderProfile() {
         <p class="muted">${p.address}</p>
         <p>${p.posts_count} posts • ${p.followers_count} followers • ${p.following_count} following</p>
       </div>
-      <button id="profile-edit-btn" class="ghost">Edit profile</button>
+      ${isOwn ? '<button id="profile-edit-btn" class="ghost">Edit profile</button>' : ''}
     </div>
     <p>${p.bio || ''}</p>
   `;
 
-  document.getElementById('profile-edit-btn').onclick = openEditProfile;
+  if (isOwn) {
+    document.getElementById('profile-edit-btn').onclick = openEditProfile;
+  }
 
   const myPosts = state.posts.filter(post => post.address.toLowerCase() === p.address.toLowerCase());
   els.profilePosts.innerHTML = '';
@@ -456,6 +494,7 @@ els.createBtn.addEventListener('click', () => {
   setView('create');
 });
 els.profileBtn.addEventListener('click', () => {
+  state.viewingExternalProfile = false;
   setView('profile');
 });
 els.createForm.addEventListener('submit', submitCreate);
