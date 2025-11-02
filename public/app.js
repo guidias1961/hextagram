@@ -104,6 +104,22 @@ async function loadFeed() {
     headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
   });
   const posts = await res.json();
+
+  // pegar até 5 comentários de cada post para mostrar direto no feed
+  for (const post of posts) {
+    if (post.comment_count && post.comment_count > 0) {
+      try {
+        const cres = await fetch(`${API_BASE}/posts/${post.id}/comments`);
+        const all = await cres.json();
+        post.preview_comments = all.slice(0, 5);
+      } catch (e) {
+        post.preview_comments = [];
+      }
+    } else {
+      post.preview_comments = [];
+    }
+  }
+
   state.posts = posts;
   renderFeed();
 }
@@ -218,6 +234,35 @@ function createPostCard(post) {
   card.appendChild(caption);
   card.appendChild(actions);
 
+  // comentários no feed
+  if (Array.isArray(post.preview_comments) && post.preview_comments.length) {
+    const commentsBox = document.createElement('div');
+    commentsBox.className = 'post-comments';
+    post.preview_comments.forEach(c => {
+      const row = document.createElement('div');
+      row.className = 'post-comment-item';
+      row.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${c.content}`;
+      commentsBox.appendChild(row);
+    });
+    if (post.comment_count > 5) {
+      const more = document.createElement('button');
+      more.className = 'post-comments-more';
+      more.textContent = 'Show more';
+      more.addEventListener('click', () => openComments(post));
+      commentsBox.appendChild(more);
+    }
+    card.appendChild(commentsBox);
+  } else if (post.comment_count > 0) {
+    const commentsBox = document.createElement('div');
+    commentsBox.className = 'post-comments';
+    const more = document.createElement('button');
+    more.className = 'post-comments-more';
+    more.textContent = 'Show comments';
+    more.addEventListener('click', () => openComments(post));
+    commentsBox.appendChild(more);
+    card.appendChild(commentsBox);
+  }
+
   return card;
 }
 
@@ -278,6 +323,7 @@ async function sendComment() {
     body: JSON.stringify({ content: text }),
   });
   els.commentsInput.value = '';
+  // atualiza modal e feed para já aparecer o comentário
   await loadComments(postId);
   await loadFeed();
 }
@@ -419,11 +465,18 @@ function renderProfile() {
   els.profilePosts.innerHTML = '';
   myPosts.forEach(post => {
     if (!post.media_url) return;
+    const item = document.createElement('div');
+    item.className = 'profile-post';
     const img = document.createElement('img');
     img.src = post.media_url;
     img.alt = post.caption || '';
-    img.addEventListener('click', () => openPost(post));
-    els.profilePosts.appendChild(img);
+    item.appendChild(img);
+    const meta = document.createElement('div');
+    meta.className = 'profile-post-meta';
+    meta.innerHTML = `<span>♡ ${post.like_count}</span><span>Comments ${post.comment_count}</span><span>Share</span>`;
+    item.appendChild(meta);
+    item.addEventListener('click', () => openPost(post));
+    els.profilePosts.appendChild(item);
   });
 }
 

@@ -203,6 +203,31 @@ body {
   font-size: 13px;
 }
 
+/* comentários dentro do feed */
+.post-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 16px 14px;
+}
+.post-comment-item {
+  background: rgba(0,0,0,0.03);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.post-comment-item strong {
+  margin-right: 4px;
+}
+.post-comments-more {
+  background: none;
+  border: none;
+  color: #0088c4;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
 /* CREATE */
 .create-form {
   background: #fff;
@@ -295,14 +320,32 @@ button.small {
 .profile-posts {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px,1fr));
-  gap: 8px;
+  gap: 10px;
+  max-width: 780px;
 }
-.profile-posts img {
-  width: 100%;
-  height: 140px;
-  object-fit: cover;
+.profile-post {
+  background: #fff;
   border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+.profile-post img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  background: #f9fafb;
+}
+.profile-post-meta {
+  display: flex;
+  gap: 10px;
+  padding: 6px 8px 8px;
+  font-size: 12px;
+  color: #4b5563;
+  align-items: center;
 }
 
 /* EXPLORE */
@@ -427,7 +470,7 @@ button.small {
     border-right: none;
   }
   .profile-posts {
-    gap: 2px;
+    gap: 6px;
   }
   .post-modal-content,
   .post-card-modal {
