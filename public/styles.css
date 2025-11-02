@@ -45,10 +45,6 @@ body {
   border-radius: 12px;
   object-fit: cover;
 }
-.brand span {
-  font-size: 11px;
-  color: var(--muted);
-}
 .nav {
   display: flex;
   flex-direction: column;
@@ -98,14 +94,6 @@ body {
   padding: 6px 10px;
   font-size: 13px;
   cursor: pointer;
-}
-.badge {
-  background: rgba(0,194,255,0.1);
-  color: #0088c4;
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  width: fit-content;
 }
 .content {
   flex: 1;
@@ -206,11 +194,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-.input-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 input[type="text"],
 textarea,
@@ -357,11 +340,42 @@ button.small {
   margin-top: 8px;
 }
 
-/* RESPONSIVE INSTAGRAM-LIKE */
+/* MOBILE ORIGINAL (apenas esconder sidebar) */
 @media (max-width: 900px) {
   body {
     background: #fff;
   }
+  .sidebar {
+    display: none;
+  }
+  .content {
+    padding: 0 0 62px;
+  }
+  .section-header {
+    display: none;
+  }
+  .feed-list {
+    max-width: 100%;
+    gap: 0;
+  }
+  .post-card {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    box-shadow: none;
+  }
+  .profile-box {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+  .explore-grid {
+    gap: 2px;
+  }
+}
+
+/* INSTAGRAM MOBILE real só em telas bem pequenas */
+@media (max-width: 640px) {
   .app-shell {
     flex-direction: column;
   }
@@ -374,23 +388,20 @@ button.small {
     right: 0;
     height: 58px;
     width: 100%;
-    border-right: none;
     border-top: 1px solid var(--border);
+    border-right: none;
     padding: 0 14px;
     justify-content: space-between;
     align-items: center;
-    z-index: 40;
     background: #fff;
+    z-index: 40;
   }
-  .brand {
-    display: none;
-  }
+  .brand,
   .wallet-box {
     display: none;
   }
   .nav {
     flex-direction: row;
-    gap: 0;
     width: 100%;
     justify-content: space-between;
   }
@@ -413,26 +424,17 @@ button.small {
     padding: 0 0 62px;
     max-width: 100%;
   }
-  .section-header {
-    display: none;
-  }
   .feed-list {
     max-width: 100%;
     gap: 12px;
   }
   .post-card {
-    border-radius: 0;
     border-left: none;
     border-right: none;
-    box-shadow: none;
   }
-  .post-media img {
-    max-height: none;
-  }
-  .profile-box {
-    border-radius: 0;
-    border-left: none;
-    border-right: none;
+  .explore-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
   }
   .profile-posts {
     grid-template-columns: repeat(3, 1fr);
@@ -442,16 +444,6 @@ button.small {
     border-radius: 0;
     aspect-ratio: 1/1;
     height: auto;
-  }
-  .explore-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1px;
-  }
-  .explore-grid img {
-    border-radius: 0;
-  }
-  .modal-body {
-    width: min(540px, 96vw);
   }
 }
 
