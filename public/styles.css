@@ -37,13 +37,13 @@ body {
   font-size: 20px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
 }
-.brand-icon {
-  width: 32px;
-  height: 32px;
-  object-fit: contain;
+.brand-logo {
+  width: 34px;
+  height: 34px;
   border-radius: 12px;
+  object-fit: cover;
 }
 .brand span {
   font-size: 11px;
@@ -357,16 +357,60 @@ button.small {
   margin-top: 8px;
 }
 
-/* RESPONSIVE */
+/* RESPONSIVE INSTAGRAM-LIKE */
 @media (max-width: 900px) {
   body {
     background: #fff;
   }
+  .app-shell {
+    flex-direction: column;
+  }
   .sidebar {
+    display: flex;
+    flex-direction: row;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 58px;
+    width: 100%;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    padding: 0 14px;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 40;
+    background: #fff;
+  }
+  .brand {
     display: none;
   }
+  .wallet-box {
+    display: none;
+  }
+  .nav {
+    flex-direction: row;
+    gap: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+  .nav button {
+    flex: 1;
+    text-align: center;
+    justify-content: center;
+    border-radius: 0;
+    background: none;
+    padding: 4px 0 0;
+    font-size: 12px;
+    height: 58px;
+  }
+  .nav button.active {
+    background: none;
+    color: #0088c4;
+    border-top: 3px solid #0088c4;
+  }
   .content {
-    padding: 0 0 64px;
+    padding: 0 0 62px;
     max-width: 100%;
   }
   .section-header {
@@ -374,7 +418,7 @@ button.small {
   }
   .feed-list {
     max-width: 100%;
-    gap: 0;
+    gap: 12px;
   }
   .post-card {
     border-radius: 0;
@@ -391,7 +435,23 @@ button.small {
     border-right: none;
   }
   .profile-posts {
-    gap: 2px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+  }
+  .profile-posts img {
+    border-radius: 0;
+    aspect-ratio: 1/1;
+    height: auto;
+  }
+  .explore-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+  }
+  .explore-grid img {
+    border-radius: 0;
+  }
+  .modal-body {
+    width: min(540px, 96vw);
   }
 }
 
