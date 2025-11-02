@@ -30,7 +30,11 @@ async function query(text, params) {
   }
 }
 
+// pastas
+const publicDir = path.join(__dirname, 'public');
 const uploadDir = path.join(__dirname, 'uploads');
+
+// upload
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, uploadDir);
@@ -72,9 +76,11 @@ function verifySignature(address, message, signature) {
   }
 }
 
-const indexPath = path.join(__dirname, 'index.html');
+// servir estático
 app.use('/uploads', express.static(uploadDir));
-app.use(express.static(__dirname));
+app.use(express.static(publicDir));
+
+const indexPath = path.join(publicDir, 'index.html');
 
 async function ensureTables() {
   await query(`
@@ -126,7 +132,7 @@ async function ensureTables() {
   await query(`UPDATE posts SET media_type = 'image' WHERE media_type IS NULL;`);
 }
 
-// AUTH
+// auth
 app.post('/api/auth', async (req, res) => {
   const { address, message, signature } = req.body;
   if (!address || !message || !signature) return res.status(400).json({ error: 'Missing auth data' });
@@ -141,7 +147,7 @@ app.post('/api/auth', async (req, res) => {
   res.json({ token, address: addr });
 });
 
-// upload mídia de post
+// upload post
 app.post('/api/upload-media', upload.single('media'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
   res.json({ ok: true, url: '/uploads/' + req.file.filename });
@@ -255,7 +261,7 @@ app.post('/api/posts/:id/comments', async (req, res) => {
   res.json(r.rows[0]);
 });
 
-// delete post apenas do dono
+// delete post do dono
 app.delete('/api/posts/:id', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
@@ -268,7 +274,7 @@ app.delete('/api/posts/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-// profile do próprio
+// perfil próprio
 app.get('/api/profile/me', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
@@ -287,11 +293,12 @@ app.get('/api/profile/me', async (req, res) => {
     avatar_url: user.avatar_url,
     posts_count: Number(posts.rows[0].count),
     followers_count: Number(followers.rows[0].count),
-    following_count: Number(following.rows[0].count)
+    following_count: Number(following.rows[0].count),
+    is_following: false
   });
 });
 
-// profile de outro usuário (para seguir)
+// perfil de outro
 app.get('/api/profile/:address', async (req, res) => {
   const viewer = getAddressFromReq(req);
   const target = req.params.address.toLowerCase();
@@ -354,7 +361,7 @@ app.delete('/api/follow/:address', async (req, res) => {
   res.json({ ok: true });
 });
 
-// update de perfil
+// update perfil
 app.put('/api/profile', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
@@ -366,10 +373,10 @@ app.put('/api/profile', async (req, res) => {
   res.json({ ok: true });
 });
 
-// SPA fallback
-app.get('/', (req, res) => res.sendFile(indexPath));
-app.get('/index.html', (req, res) => res.sendFile(indexPath));
-app.get('*', (req, res) => res.sendFile(indexPath));
+// fallback SPA
+app.get('*', (req, res) => {
+  res.sendFile(indexPath);
+});
 
 const PORT = process.env.PORT || 3000;
 
