@@ -1,46 +1,67 @@
 import express from 'express';
 import cors from 'cors';
-import multer from 'multer';
 import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
+import multer from 'multer';
+import pkg from 'pg';
 import jwt from 'jsonwebtoken';
 import { ethers } from 'ethers';
-import { query } from './db.js';
+
+const { Pool } = pkg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.use(cors());
+app.use(express.json());
 
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/hextagram'
+});
+
+async function query(text, params) {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(text, params);
+    return res;
+  } finally {
+    client.release();
+  }
 }
 
-// onde está o front
-const publicDir = fs.existsSync(path.join(__dirname, 'public'))
-  ? path.join(__dirname, 'public')
-  : __dirname;
-
-const indexPath = fs.existsSync(path.join(publicDir, 'index.html'))
-  ? path.join(publicDir, 'index.html')
-  : path.join(__dirname, 'index.html');
-
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use('/uploads', express.static(uploadsDir));
-app.use(express.static(publicDir)); // serve css, js, etc
+const uploadDir = path.join(__dirname, 'uploads');
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname) || '.png';
+    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
+  }
+});
+const upload = multer({ storage });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hextagram-secret';
 
-// storage local
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) =>
-    cb(null, Date.now() + '-' + Math.round(Math.random() * 1e9) + path.extname(file.originalname || ''))
-});
-const upload = multer({ storage });
+function makeToken(address) {
+  return jwt.sign({ address }, JWT_SECRET, { expiresIn: '30d' });
+}
+
+function getAddressFromReq(req) {
+  const auth = req.headers.authorization;
+  if (!auth) return null;
+  const parts = auth.split(' ');
+  if (parts.length !== 2) return null;
+  const token = parts[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return decoded.address;
+  } catch (e) {
+    return null;
+  }
+}
 
 function verifySignature(address, message, signature) {
   try {
@@ -50,20 +71,10 @@ function verifySignature(address, message, signature) {
     return false;
   }
 }
-function makeToken(address) {
-  return jwt.sign({ address }, JWT_SECRET, { expiresIn: '30d' });
-}
-function getAddressFromReq(req) {
-  const auth = req.headers.authorization;
-  if (!auth) return null;
-  const token = auth.split(' ')[1];
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    return decoded.address;
-  } catch (e) {
-    return null;
-  }
-}
+
+const indexPath = path.join(__dirname, 'index.html');
+app.use('/uploads', express.static(uploadDir));
+app.use(express.static(__dirname));
 
 async function ensureTables() {
   await query(`
@@ -257,7 +268,7 @@ app.delete('/api/posts/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-// profile
+// profile do próprio
 app.get('/api/profile/me', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
@@ -280,6 +291,70 @@ app.get('/api/profile/me', async (req, res) => {
   });
 });
 
+// profile de outro usuário (para seguir)
+app.get('/api/profile/:address', async (req, res) => {
+  const viewer = getAddressFromReq(req);
+  const target = req.params.address.toLowerCase();
+
+  const u = await query(`SELECT * FROM users WHERE address = $1`, [target]);
+  const user = u.rowCount ? u.rows[0] : { address: target };
+
+  const posts = await query(`SELECT COUNT(*) FROM posts WHERE user_address = $1`, [target]);
+  const followers = await query(`SELECT COUNT(*) FROM follows WHERE following_address = $1`, [target]);
+  const following = await query(`SELECT COUNT(*) FROM follows WHERE follower_address = $1`, [target]);
+
+  let is_following = false;
+  if (viewer) {
+    const f = await query(
+      `SELECT 1 FROM follows WHERE follower_address = $1 AND following_address = $2`,
+      [viewer, target]
+    );
+    is_following = f.rowCount > 0;
+  }
+
+  res.json({
+    address: target,
+    username: user.username,
+    bio: user.bio,
+    avatar_url: user.avatar_url,
+    posts_count: Number(posts.rows[0].count),
+    followers_count: Number(followers.rows[0].count),
+    following_count: Number(following.rows[0].count),
+    is_following
+  });
+});
+
+// seguir
+app.post('/api/follow', async (req, res) => {
+  const follower = getAddressFromReq(req);
+  if (!follower) return res.status(401).json({ error: 'Unauthorized' });
+  const { target } = req.body;
+  if (!target) return res.status(400).json({ error: 'target required' });
+  const t = target.toLowerCase();
+  const f = follower.toLowerCase();
+  if (t === f) return res.status(400).json({ error: 'cannot follow self' });
+
+  await query(
+    `INSERT INTO follows (follower_address, following_address) VALUES ($1, $2)
+     ON CONFLICT (follower_address, following_address) DO NOTHING`,
+    [f, t]
+  );
+  res.json({ ok: true });
+});
+
+// deixar de seguir
+app.delete('/api/follow/:address', async (req, res) => {
+  const follower = getAddressFromReq(req);
+  if (!follower) return res.status(401).json({ error: 'Unauthorized' });
+  const target = req.params.address.toLowerCase();
+  await query(
+    `DELETE FROM follows WHERE follower_address = $1 AND following_address = $2`,
+    [follower.toLowerCase(), target]
+  );
+  res.json({ ok: true });
+});
+
+// update de perfil
 app.put('/api/profile', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });

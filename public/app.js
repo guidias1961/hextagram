@@ -114,7 +114,6 @@ async function loadFeed() {
   });
   const posts = await res.json();
 
-  // pegar até 5 comentários de cada post para mostrar direto no feed
   for (const post of posts) {
     if (post.comment_count && post.comment_count > 0) {
       try {
@@ -143,21 +142,6 @@ function renderFeed() {
     const card = createPostCard(post);
     els.feedList.appendChild(card);
   });
-}
-
-function openUserProfile(address, username, avatarUrl) {
-  const userPosts = state.posts.filter(p => p.address && p.address.toLowerCase() === address.toLowerCase());
-  state.profile = {
-    address,
-    username: username || (userPosts[0] ? userPosts[0].username : shortenAddress(address)),
-    avatar_url: avatarUrl || (userPosts[0] ? userPosts[0].avatar_url : ''),
-    bio: '',
-    posts_count: userPosts.length,
-    followers_count: 0,
-    following_count: 0
-  };
-  state.viewingExternalProfile = true;
-  setView('profile');
 }
 
 function openPost(post) {
@@ -196,14 +180,6 @@ function createPostCard(post) {
   header.appendChild(avatar);
   header.appendChild(user);
 
-  if (state.address && state.address.toLowerCase() === post.address.toLowerCase()) {
-    const delBtn = document.createElement('button');
-    delBtn.className = 'ghost small';
-    delBtn.textContent = 'Delete';
-    delBtn.onclick = () => deletePost(post.id);
-    header.appendChild(delBtn);
-  }
-
   const media = document.createElement('div');
   media.className = 'post-media';
   if (post.media_url) {
@@ -211,28 +187,40 @@ function createPostCard(post) {
     img.src = post.media_url;
     img.alt = post.caption || '';
     media.appendChild(img);
-  } else {
-    media.innerHTML = '<div class="no-media">media not found</div>';
   }
 
-  const caption = document.createElement('p');
+  const caption = document.createElement('div');
   caption.className = 'post-caption';
-  caption.textContent = post.caption || '';
+  caption.innerHTML = linkify(post.caption || '');
 
   const actions = document.createElement('div');
   actions.className = 'post-actions';
 
   const likeBtn = document.createElement('button');
   likeBtn.textContent = post.liked ? `♥ ${post.like_count}` : `♡ ${post.like_count}`;
-  likeBtn.onclick = () => toggleLike(post.id);
+  likeBtn.addEventListener('click', async () => {
+    if (!state.token) {
+      alert('Connect wallet');
+      return;
+    }
+    const res = await fetch(`${API_BASE}/posts/${post.id}/like`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${state.token}`,
+      },
+    });
+    const data = await res.json();
+    post.like_count = data.likes;
+    post.liked = data.liked;
+    likeBtn.textContent = post.liked ? `♥ ${post.like_count}` : `♡ ${post.like_count}`;
+  });
 
   const commentBtn = document.createElement('button');
   commentBtn.textContent = `Comments ${post.comment_count}`;
-  commentBtn.onclick = () => openComments(post);
+  commentBtn.addEventListener('click', () => openComments(post));
 
   const shareBtn = document.createElement('button');
   shareBtn.textContent = 'Share';
-  shareBtn.onclick = () => sharePost(post);
 
   actions.appendChild(likeBtn);
   actions.appendChild(commentBtn);
@@ -241,65 +229,49 @@ function createPostCard(post) {
   card.appendChild(header);
   card.appendChild(media);
   card.appendChild(caption);
+
+  if (post.preview_comments && post.preview_comments.length > 0) {
+    const preview = document.createElement('div');
+    preview.className = 'comment-preview';
+    post.preview_comments.forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'comment-item';
+      item.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${c.content}`;
+      preview.appendChild(item);
+    });
+    card.appendChild(preview);
+  }
+
   card.appendChild(actions);
 
-  // comentários no feed
-  if (Array.isArray(post.preview_comments) && post.preview_comments.length) {
-    const commentsBox = document.createElement('div');
-    commentsBox.className = 'post-comments';
-    post.preview_comments.forEach(c => {
-      const row = document.createElement('div');
-      row.className = 'post-comment-item';
-      row.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${linkify(c.content)}`;
-      commentsBox.appendChild(row);
+  if (state.address && post.address && state.address.toLowerCase() === post.address.toLowerCase()) {
+    const del = document.createElement('button');
+    del.className = 'ghost';
+    del.textContent = 'Delete';
+    del.style.margin = '0 0 12px 16px';
+    del.addEventListener('click', async () => {
+      if (!confirm('Delete this post?')) return;
+      await fetch(`${API_BASE}/posts/${post.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${state.token}` },
+      });
+      await loadFeed();
+      if (!state.viewingExternalProfile) {
+        await loadProfile();
+      }
     });
-    if (post.comment_count > 5) {
-      const more = document.createElement('button');
-      more.className = 'post-comments-more';
-      more.textContent = 'Show more';
-      more.addEventListener('click', () => openComments(post));
-      commentsBox.appendChild(more);
-    }
-    card.appendChild(commentsBox);
-  } else if (post.comment_count > 0) {
-    const commentsBox = document.createElement('div');
-    commentsBox.className = 'post-comments';
-    const more = document.createElement('button');
-    more.className = 'post-comments-more';
-    more.textContent = 'Show comments';
-    more.addEventListener('click', () => openComments(post));
-    commentsBox.appendChild(more);
-    card.appendChild(commentsBox);
+    card.appendChild(del);
   }
 
   return card;
 }
 
-async function toggleLike(postId) {
-  if (!state.token) {
-    alert('Connect wallet first');
-    return;
-  }
-  const res = await fetch(`${API_BASE}/posts/${postId}/like`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${state.token}`,
-    },
-  });
-  const data = await res.json();
-  const idx = state.posts.findIndex(p => p.id === postId);
-  if (idx !== -1) {
-    state.posts[idx].like_count = data.likes;
-    state.posts[idx].liked = data.liked;
-    renderFeed();
-  }
-}
-
+// COMMENTS
 function openComments(post) {
   els.commentsModal.classList.remove('hidden');
+  els.commentsList.innerHTML = '';
   els.commentsModal.dataset.postId = post.id;
-  document.getElementById('comments-title').textContent = 'Comments';
+  document.getElementById('comments-title').textContent = `Comments for post #${post.id}`;
   loadComments(post.id);
 }
 
@@ -310,17 +282,17 @@ async function loadComments(postId) {
   comments.forEach(c => {
     const item = document.createElement('div');
     item.className = 'comment-item';
-    item.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${linkify(c.content)}`;
+    item.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${c.content}`;
     els.commentsList.appendChild(item);
   });
 }
 
 async function sendComment() {
-  const postId = Number(els.commentsModal.dataset.postId);
-  const text = els.commentsInput.value.trim();
-  if (!text) return;
+  const postId = els.commentsModal.dataset.postId;
+  const txt = els.commentsInput.value.trim();
+  if (!txt) return;
   if (!state.token) {
-    alert('Connect wallet first');
+    alert('Connect wallet');
     return;
   }
   await fetch(`${API_BASE}/posts/${postId}/comments`, {
@@ -329,51 +301,18 @@ async function sendComment() {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${state.token}`,
     },
-    body: JSON.stringify({ content: text }),
+    body: JSON.stringify({ content: txt }),
   });
   els.commentsInput.value = '';
-  // atualiza modal e feed para já aparecer o comentário
   await loadComments(postId);
   await loadFeed();
 }
 
-function closeComments() {
-  els.commentsModal.classList.add('hidden');
-}
-
-function sharePost(post) {
-  const url = `${window.location.origin}/#post-${post.id}`;
-  navigator.clipboard.writeText(url).then(() => {
-    alert('Link copied');
-  });
-}
-
-async function deletePost(postId) {
-  if (!state.token) {
-    alert('Connect wallet first');
-    return;
-  }
-  if (!confirm('Delete this post?')) return;
-  const res = await fetch(`${API_BASE}/posts/${postId}`, {
-    method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${state.token}`,
-    },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    alert(err.error || 'failed to delete');
-    return;
-  }
-  await loadFeed();
-  await loadProfile();
-}
-
-// CREATE POST
-async function submitCreate(e) {
+// CREATE
+async function handleCreate(e) {
   e.preventDefault();
   if (!state.token) {
-    alert('Connect wallet first');
+    alert('Connect wallet');
     return;
   }
   const file = els.createFileInput.files[0];
@@ -453,6 +392,8 @@ function renderProfile() {
   if (!p) return;
   const isOwn = !state.viewingExternalProfile && state.address && p.address && state.address.toLowerCase() === p.address.toLowerCase();
 
+  const canFollow = state.token && state.address && !isOwn && p.address;
+
   els.profileBox.innerHTML = `
     <div class="profile-header">
       <div class="profile-avatar" style="background-image: ${p.avatar_url ? `url(${p.avatar_url})` : 'none'}"></div>
@@ -461,16 +402,52 @@ function renderProfile() {
         <p class="muted">${p.address}</p>
         <p>${p.posts_count} posts • ${p.followers_count} followers • ${p.following_count} following</p>
       </div>
-      ${isOwn ? '<button id="profile-edit-btn" class="ghost">Edit profile</button>' : ''}
+      ${isOwn
+        ? '<button id="profile-edit-btn" class="ghost">Edit profile</button>'
+        : (canFollow
+          ? `<button id="profile-follow-btn" class="${p.is_following ? 'ghost' : 'primary'}" data-followed="${p.is_following ? '1' : '0'}">${p.is_following ? 'Unfollow' : 'Follow'}</button>`
+          : '')
+      }
     </div>
     <p>${p.bio || ''}</p>
   `;
 
   if (isOwn) {
     document.getElementById('profile-edit-btn').onclick = openEditProfile;
+  } else if (canFollow) {
+    const btn = document.getElementById('profile-follow-btn');
+    btn.onclick = async () => {
+      const followed = btn.dataset.followed === '1';
+      if (followed) {
+        await fetch(`${API_BASE}/follow/${p.address}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${state.token}` },
+        });
+      } else {
+        await fetch(`${API_BASE}/follow`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${state.token}`,
+          },
+          body: JSON.stringify({ target: p.address }),
+        });
+      }
+
+      if (state.viewingExternalProfile) {
+        const r = await fetch(`${API_BASE}/profile/${p.address}`, {
+          headers: { Authorization: `Bearer ${state.token}` },
+        });
+        const fresh = await r.json();
+        state.profile = fresh;
+        renderProfile();
+      } else {
+        await loadProfile();
+      }
+    };
   }
 
-  const myPosts = state.posts.filter(post => post.address.toLowerCase() === p.address.toLowerCase());
+  const myPosts = state.posts.filter(post => post.address && p.address && post.address.toLowerCase() === p.address.toLowerCase());
   els.profilePosts.innerHTML = '';
   myPosts.forEach(post => {
     if (!post.media_url) return;
@@ -538,50 +515,86 @@ async function saveProfile() {
   await loadFeed();
 }
 
-// explore
+async function openUserProfile(address, username, avatarUrl) {
+  if (state.address && address && state.address.toLowerCase() === address.toLowerCase()) {
+    state.viewingExternalProfile = false;
+    setView('profile');
+    return;
+  }
+
+  let profileData = null;
+
+  if (state.token) {
+    try {
+      const res = await fetch(`${API_BASE}/profile/${address}`, {
+        headers: { Authorization: `Bearer ${state.token}` },
+      });
+      if (res.ok) {
+        profileData = await res.json();
+      }
+    } catch (e) {
+      profileData = null;
+    }
+  }
+
+  if (!profileData) {
+    const userPosts = state.posts.filter(p => p.address && p.address.toLowerCase() === address.toLowerCase());
+    profileData = {
+      address,
+      username: username || (userPosts[0] ? userPosts[0].username : shortenAddress(address)),
+      avatar_url: avatarUrl || (userPosts[0] ? userPosts[0].avatar_url : ''),
+      bio: '',
+      posts_count: userPosts.length,
+      followers_count: 0,
+      following_count: 0,
+      is_following: false
+    };
+  }
+
+  state.profile = profileData;
+  state.viewingExternalProfile = true;
+  setView('profile');
+}
+
+// EXPLORE (mock simples)
 async function loadExplore() {
-  const res = await fetch(`${API_BASE}/posts`);
-  const posts = await res.json();
   els.exploreList.innerHTML = '';
-  posts.forEach(post => {
-    if (!post.media_url) return;
-    const item = document.createElement('div');
-    item.className = 'explore-item';
+  const imgs = state.posts.slice(0, 30);
+  imgs.forEach(p => {
+    if (!p.media_url) return;
     const img = document.createElement('img');
-    img.src = post.media_url;
-    img.alt = post.caption || '';
-    item.appendChild(img);
-    item.addEventListener('click', () => openPost(post));
-    els.exploreList.appendChild(item);
+    img.src = p.media_url;
+    img.alt = p.caption || '';
+    img.addEventListener('click', () => openPost(p));
+    els.exploreList.appendChild(img);
   });
 }
 
 // events
-els.connectBtn.addEventListener('click', connectWallet);
-els.feedBtn.addEventListener('click', () => {
-  setView('feed');
-});
-els.exploreBtn.addEventListener('click', () => {
-  setView('explore');
-});
-els.createBtn.addEventListener('click', () => {
-  setView('create');
-});
+els.feedBtn.addEventListener('click', () => setView('feed'));
+els.exploreBtn.addEventListener('click', () => setView('explore'));
+els.createBtn.addEventListener('click', () => setView('create'));
 els.profileBtn.addEventListener('click', () => {
   state.viewingExternalProfile = false;
   setView('profile');
 });
-els.createForm.addEventListener('submit', submitCreate);
+els.connectBtn.addEventListener('click', connectWallet);
+
+els.createForm.addEventListener('submit', handleCreate);
 els.createFileInput.addEventListener('change', handleCreatePreview);
-els.editCancel.addEventListener('click', closeEditProfile);
-els.editSave.addEventListener('click', saveProfile);
-document.getElementById('comments-close').addEventListener('click', closeComments);
+
 els.commentsSend.addEventListener('click', sendComment);
+document.getElementById('comments-close').addEventListener('click', () => {
+  els.commentsModal.classList.add('hidden');
+});
+
 els.postClose.addEventListener('click', () => {
   els.postModal.classList.add('hidden');
 });
 
-// initial
-setView('feed');
+els.editCancel.addEventListener('click', closeEditProfile);
+els.editSave.addEventListener('click', saveProfile);
+
+// init
 loadFeed();
 
