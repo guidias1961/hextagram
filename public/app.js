@@ -43,8 +43,6 @@ let selectedPostFile = null;
 let cachedPosts = [];
 let currentPublicProfile = null;
 
-// helpers
-
 function authHeaders() {
   const h = { 'Content-Type': 'application/json' };
   if (authToken) h['Authorization'] = 'Bearer ' + authToken;
@@ -73,7 +71,10 @@ async function fetchJSON(url, opts = {}) {
   return res.json();
 }
 
-// load feed
+function sliceAddress(addr) {
+  if (!addr) return '';
+  return addr.slice(0, 6) + '...' + addr.slice(-4);
+}
 
 async function loadFeed() {
   try {
@@ -85,11 +86,6 @@ async function loadFeed() {
   } catch (err) {
     console.error(err);
   }
-}
-
-function sliceAddress(addr) {
-  if (!addr) return '';
-  return addr.slice(0, 6) + '...' + addr.slice(-4);
 }
 
 function renderFeed(posts) {
@@ -132,8 +128,6 @@ function renderFeed(posts) {
   });
 }
 
-// load explore
-
 function renderExplore(posts) {
   exploreGrid.innerHTML = '';
   posts.forEach(post => {
@@ -143,7 +137,10 @@ function renderExplore(posts) {
     item.innerHTML = `
       <img src="${post.media_url}" alt="">
       <div class="explore-meta">
-        <img src="${post.avatar_url || '/uploads/default-avatar.png'}" onerror="this.src='/uploads/default-avatar.png'" style="width:22px;height:22px;border-radius:999px;cursor:pointer" data-profile="${post.address}">
+        <img src="${post.avatar_url || '/uploads/default-avatar.png'}"
+             onerror="this.src='/uploads/default-avatar.png'"
+             style="width:22px;height:22px;border-radius:999px;cursor:pointer"
+             data-profile="${post.address}">
         <span>${post.username || sliceAddress(post.address)}</span>
       </div>
     `;
@@ -153,14 +150,14 @@ function renderExplore(posts) {
 
 async function loadExplore() {
   try {
-    const posts = cachedPosts.length ? cachedPosts : await fetchJSON('/api/posts', { headers: authHeaders() });
+    const posts = cachedPosts.length
+      ? cachedPosts
+      : await fetchJSON('/api/posts', { headers: authHeaders() });
     renderExplore(posts);
   } catch (err) {
     console.error(err);
   }
 }
-
-// create post handlers
 
 postPreview.addEventListener('click', () => {
   postFileInput.click();
@@ -187,7 +184,6 @@ publishPostBtn.addEventListener('click', async () => {
     return;
   }
   try {
-    // 1 upload
     const form = new FormData();
     form.append('media', selectedPostFile);
     const upRes = await fetch('/api/upload-media', {
@@ -198,9 +194,8 @@ publishPostBtn.addEventListener('click', async () => {
     const upJson = await upRes.json();
     if (!upJson.ok) throw new Error('upload failed');
 
-    // 2 create post
     const caption = document.getElementById('postCaption').value;
-    const post = await fetchJSON('/api/posts', {
+    await fetchJSON('/api/posts', {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({
@@ -209,7 +204,6 @@ publishPostBtn.addEventListener('click', async () => {
       })
     });
 
-    // reload feed
     await loadFeed();
     showView('feed');
     document.getElementById('postCaption').value = '';
@@ -220,8 +214,6 @@ publishPostBtn.addEventListener('click', async () => {
     postError.textContent = 'Failed to publish post.';
   }
 });
-
-// click handlers global
 
 feedList.addEventListener('click', async e => {
   const likeBtn = e.target.closest('[data-like]');
@@ -262,8 +254,6 @@ exploreGrid.addEventListener('click', e => {
   }
 });
 
-// likes
-
 async function toggleLike(postId) {
   if (!authToken) {
     alert('Connect wallet first');
@@ -274,7 +264,6 @@ async function toggleLike(postId) {
       method: 'POST',
       headers: authHeaders()
     });
-    // update cache
     cachedPosts = cachedPosts.map(p => p.id === Number(postId)
       ? { ...p, like_count: res.likes, liked: res.liked }
       : p
@@ -299,8 +288,6 @@ async function deletePost(postId) {
   }
 }
 
-// profile (mine)
-
 async function loadMyProfile() {
   if (!authToken) {
     myProfileCard.innerHTML = `<p>Connect wallet to load profile.</p>`;
@@ -312,7 +299,6 @@ async function loadMyProfile() {
       headers: authHeaders()
     });
     renderMyProfile(me);
-    // posts
     const posts = await fetchJSON(`/api/posts/by/${me.address}`, {
       headers: authHeaders()
     });
@@ -343,8 +329,6 @@ function renderMyProfile(me) {
     openEditProfileModal(me);
   });
 }
-
-// public profile
 
 async function openPublicProfile(address) {
   try {
@@ -429,8 +413,6 @@ function renderProfilePosts(targetEl, posts) {
   });
 }
 
-// post modal
-
 function openPostModal(postId) {
   const post = cachedPosts.find(p => p.id === Number(postId));
   if (!post) return;
@@ -455,11 +437,10 @@ closePostModal.addEventListener('click', () => {
   postModal.classList.add('hidden');
 });
 
-// edit profile modal
-
 function openEditProfileModal(me) {
   editUsername.value = me.username || '';
   editBio.value = me.bio || '';
+  editAvatarFile.value = '';
   editProfileModal.classList.remove('hidden');
 }
 cancelEditProfile.addEventListener('click', () => {
@@ -467,7 +448,6 @@ cancelEditProfile.addEventListener('click', () => {
 });
 saveEditProfile.addEventListener('click', async () => {
   try {
-    // avatar first if selected
     let avatar_url = null;
     const file = editAvatarFile.files[0];
     if (file) {
@@ -502,8 +482,6 @@ saveEditProfile.addEventListener('click', async () => {
   }
 });
 
-// sidebar navigation
-
 sidebarButtons.forEach(btn => {
   btn.addEventListener('click', async () => {
     const view = btn.dataset.view;
@@ -518,25 +496,25 @@ sidebarButtons.forEach(btn => {
   });
 });
 
-// wallet connect
-
 connectWalletBtn.addEventListener('click', async () => {
   if (!window.ethereum) {
     alert('Install MetaMask');
     return;
   }
   try {
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const accounts = await provider.send('eth_requestAccounts', []);
+    const accounts = await window.ethereum.request({
+      method: 'eth_requestAccounts'
+    });
     const account = accounts[0];
     currentAccount = account;
     walletStatus.textContent = sliceAddress(account);
     localStorage.setItem('hextagram_address', account);
 
-    // sign login
+    const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
     const message = 'Login to Hextagram with wallet ' + account;
     const signature = await signer.signMessage(message);
+
     const auth = await fetchJSON('/api/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -549,11 +527,10 @@ connectWalletBtn.addEventListener('click', async () => {
     await loadMyProfile();
   } catch (err) {
     console.error(err);
-    alert('Failed to connect wallet');
+    alert(err.message || 'Failed to connect wallet');
   }
 });
 
-// initial
 (async function init() {
   if (currentAccount) {
     walletStatus.textContent = sliceAddress(currentAccount);
