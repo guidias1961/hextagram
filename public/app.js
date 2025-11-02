@@ -35,6 +35,9 @@ const els = {
   commentsList: document.getElementById('comments-list'),
   commentsInput: document.getElementById('comments-input'),
   commentsSend: document.getElementById('comments-send'),
+  postModal: document.getElementById('post-modal'),
+  postModalContent: document.getElementById('post-modal-content'),
+  postClose: document.getElementById('post-close')
 };
 
 function setView(view) {
@@ -132,6 +135,14 @@ function openUserProfile(address, username, avatarUrl) {
   setView('profile');
 }
 
+function openPost(post) {
+  els.postModal.classList.remove('hidden');
+  els.postModalContent.innerHTML = '';
+  const card = createPostCard(post);
+  card.classList.add('post-card-modal');
+  els.postModalContent.appendChild(card);
+}
+
 function createPostCard(post) {
   const card = document.createElement('article');
   card.className = 'post-card';
@@ -144,22 +155,18 @@ function createPostCard(post) {
   if (post.avatar_url) {
     avatar.style.backgroundImage = `url(${post.avatar_url})`;
   }
-  avatar.style.cursor = 'pointer';
-  avatar.addEventListener('click', () => {
-    if (post.address) {
-      openUserProfile(post.address, post.username, post.avatar_url);
-    }
-  });
+  if (post.address) {
+    avatar.style.cursor = 'pointer';
+    avatar.addEventListener('click', () => openUserProfile(post.address, post.username, post.avatar_url));
+  }
 
   const user = document.createElement('div');
   user.className = 'post-user';
   user.innerHTML = `<strong>${post.username || shortenAddress(post.address)}</strong><span>${new Date(post.created_at).toLocaleString()}</span>`;
-  user.style.cursor = 'pointer';
-  user.addEventListener('click', () => {
-    if (post.address) {
-      openUserProfile(post.address, post.username, post.avatar_url);
-    }
-  });
+  if (post.address) {
+    user.style.cursor = 'pointer';
+    user.addEventListener('click', () => openUserProfile(post.address, post.username, post.avatar_url));
+  }
 
   header.appendChild(avatar);
   header.appendChild(user);
@@ -415,6 +422,7 @@ function renderProfile() {
     const img = document.createElement('img');
     img.src = post.media_url;
     img.alt = post.caption || '';
+    img.addEventListener('click', () => openPost(post));
     els.profilePosts.appendChild(img);
   });
 }
@@ -475,10 +483,14 @@ async function loadExplore() {
   els.exploreList.innerHTML = '';
   posts.forEach(post => {
     if (!post.media_url) return;
+    const item = document.createElement('div');
+    item.className = 'explore-item';
     const img = document.createElement('img');
     img.src = post.media_url;
     img.alt = post.caption || '';
-    els.exploreList.appendChild(img);
+    item.appendChild(img);
+    item.addEventListener('click', () => openPost(post));
+    els.exploreList.appendChild(item);
   });
 }
 
@@ -503,6 +515,9 @@ els.editCancel.addEventListener('click', closeEditProfile);
 els.editSave.addEventListener('click', saveProfile);
 document.getElementById('comments-close').addEventListener('click', closeComments);
 els.commentsSend.addEventListener('click', sendComment);
+els.postClose.addEventListener('click', () => {
+  els.postModal.classList.add('hidden');
+});
 
 // initial
 setView('feed');

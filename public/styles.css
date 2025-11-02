@@ -39,9 +39,15 @@ body {
   align-items: center;
   gap: 6px;
 }
-.brand span {
-  font-size: 11px;
-  color: var(--muted);
+.brand-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #00c2ff, #ff00ea);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 13px;
 }
 .nav {
   display: flex;
@@ -93,7 +99,7 @@ body {
   font-size: 13px;
   cursor: pointer;
 }
-.badge {
+.network-pill {
   background: rgba(0,194,255,0.1);
   color: #0088c4;
   padding: 4px 12px;
@@ -156,13 +162,18 @@ body {
   color: var(--muted);
 }
 .post-media {
-  background: #000;
+  background: #fff;
 }
 .post-media img {
   width: 100%;
-  max-height: 460px;
-  object-fit: cover;
+  height: auto;
+  object-fit: contain;
   display: block;
+}
+.no-media {
+  background: #f9fafb;
+  padding: 24px;
+  text-align: center;
 }
 .post-caption {
   padding: 12px 16px 10px;
@@ -201,10 +212,9 @@ body {
   flex-direction: column;
   gap: 12px;
 }
-.input-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.input-label {
+  font-size: 13px;
+  font-weight: 500;
 }
 input[type="text"],
 textarea,
@@ -289,9 +299,13 @@ button.small {
   height: 140px;
   object-fit: cover;
   border-radius: 12px;
+  cursor: pointer;
 }
 
 /* EXPLORE */
+.explore-item {
+  cursor: pointer;
+}
 .explore-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px,1fr));
@@ -302,6 +316,20 @@ button.small {
   aspect-ratio: 1/1;
   object-fit: cover;
   border-radius: 12px;
+}
+
+/* POST MODAL */
+.post-modal-body {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+.post-modal-content {
+  max-width: 580px;
+  width: min(580px, 96vw);
+}
+.post-card-modal {
+  border-radius: 16px;
 }
 
 /* MODALS */
@@ -325,6 +353,11 @@ button.small {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.modal-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 .modal-actions {
   display: flex;
@@ -375,9 +408,6 @@ button.small {
     border-left: none;
     border-right: none;
     box-shadow: none;
-  }
-  .post-media img {
-    max-height: none;
   }
   .profile-box {
     border-radius: 0;
