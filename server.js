@@ -244,7 +244,7 @@ app.post('/api/posts/:id/comments', async (req, res) => {
   res.json(r.rows[0]);
 });
 
-// delete post
+// delete post apenas do dono
 app.delete('/api/posts/:id', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });

@@ -243,7 +243,6 @@ async function sendComment() {
 
 function closeComments() {
   els.commentsModal.classList.add('hidden');
-  els.commentsList.innerHTML = '';
 }
 
 function sharePost(post) {
@@ -259,12 +258,17 @@ async function deletePost(postId) {
     return;
   }
   if (!confirm('Delete this post?')) return;
-  await fetch(`${API_BASE}/posts/${postId}`, {
+  const res = await fetch(`${API_BASE}/posts/${postId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${state.token}`,
     },
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || 'failed to delete');
+    return;
+  }
   await loadFeed();
   await loadProfile();
 }
@@ -314,8 +318,7 @@ async function submitCreate(e) {
     return;
   }
 
-  els.createFileInput.value = '';
-  els.createCaption.value = '';
+  els.createForm.reset();
   els.createPreview.innerHTML = '';
   setView('feed');
   await loadFeed();
@@ -367,7 +370,6 @@ function renderProfile() {
 
   document.getElementById('profile-edit-btn').onclick = openEditProfile;
 
-  // show my posts using feed data
   const myPosts = state.posts.filter(post => post.address.toLowerCase() === p.address.toLowerCase());
   els.profilePosts.innerHTML = '';
   myPosts.forEach(post => {
@@ -428,7 +430,7 @@ async function saveProfile() {
   await loadFeed();
 }
 
-// EXPLORE
+// explore
 async function loadExplore() {
   const res = await fetch(`${API_BASE}/posts`);
   const posts = await res.json();
