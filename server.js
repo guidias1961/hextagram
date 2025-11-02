@@ -3,6 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
+import fs from 'fs';
 import pkg from 'pg';
 import jwt from 'jsonwebtoken';
 import { ethers } from 'ethers';
@@ -30,11 +31,14 @@ async function query(text, params) {
   }
 }
 
-// pastas
 const publicDir = path.join(__dirname, 'public');
 const uploadDir = path.join(__dirname, 'uploads');
 
-// upload
+// garante que a pasta de upload existe
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, uploadDir);
@@ -76,7 +80,6 @@ function verifySignature(address, message, signature) {
   }
 }
 
-// servir estático
 app.use('/uploads', express.static(uploadDir));
 app.use(express.static(publicDir));
 
@@ -132,7 +135,7 @@ async function ensureTables() {
   await query(`UPDATE posts SET media_type = 'image' WHERE media_type IS NULL;`);
 }
 
-// auth
+// AUTH
 app.post('/api/auth', async (req, res) => {
   const { address, message, signature } = req.body;
   if (!address || !message || !signature) return res.status(400).json({ error: 'Missing auth data' });
@@ -147,20 +150,30 @@ app.post('/api/auth', async (req, res) => {
   res.json({ token, address: addr });
 });
 
-// upload post
-app.post('/api/upload-media', upload.single('media'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file' });
-  res.json({ ok: true, url: '/uploads/' + req.file.filename });
+// upload de mídia de post
+app.post('/api/upload-media', (req, res) => {
+  upload.single('media')(req, res, err => {
+    if (err) {
+      return res.status(500).json({ error: 'upload failed', detail: err.message });
+    }
+    if (!req.file) return res.status(400).json({ error: 'No file' });
+    res.json({ ok: true, url: '/uploads/' + req.file.filename });
+  });
 });
 
 // upload avatar
-app.post('/api/profile/avatar', upload.single('avatar'), async (req, res) => {
+app.post('/api/profile/avatar', (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
-  if (!req.file) return res.status(400).json({ error: 'No avatar' });
-  const url = '/uploads/' + req.file.filename;
-  await query(`UPDATE users SET avatar_url = $1 WHERE address = $2`, [url, address]);
-  res.json({ ok: true, avatar_url: url });
+  upload.single('avatar')(req, res, async err => {
+    if (err) {
+      return res.status(500).json({ error: 'upload failed', detail: err.message });
+    }
+    if (!req.file) return res.status(400).json({ error: 'No avatar' });
+    const url = '/uploads/' + req.file.filename;
+    await query(`UPDATE users SET avatar_url = $1 WHERE address = $2`, [url, address]);
+    res.json({ ok: true, avatar_url: url });
+  });
 });
 
 // criar post
@@ -261,7 +274,7 @@ app.post('/api/posts/:id/comments', async (req, res) => {
   res.json(r.rows[0]);
 });
 
-// delete post do dono
+// delete post dono
 app.delete('/api/posts/:id', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
@@ -298,7 +311,7 @@ app.get('/api/profile/me', async (req, res) => {
   });
 });
 
-// perfil de outro
+// perfil outro
 app.get('/api/profile/:address', async (req, res) => {
   const viewer = getAddressFromReq(req);
   const target = req.params.address.toLowerCase();
@@ -373,7 +386,7 @@ app.put('/api/profile', async (req, res) => {
   res.json({ ok: true });
 });
 
-// fallback SPA
+// fallback
 app.get('*', (req, res) => {
   res.sendFile(indexPath);
 });
