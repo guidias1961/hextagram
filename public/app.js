@@ -71,10 +71,10 @@ function applyAuthToUI() {
 
 function saveAuth() {
   if (state.token && state.address) {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ address: state.address, token: state.token })
-    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      address: state.address,
+      token: state.token
+    }));
   } else {
     localStorage.removeItem(STORAGE_KEY);
   }
@@ -115,7 +115,6 @@ function setView(view) {
     else loadProfile();
   }
 
-  // mobile active state
   const mobileButtons = [
     els.mFeedBtn,
     els.mExploreBtn,
@@ -334,34 +333,76 @@ function openEditProfile() {
 
 async function saveProfile() {
   if (!state.token) return;
-  const body = {
-    username: els.editName.value,
-    bio: els.editBio.value,
-    avatar_url: els.editAvatarUrl.value
-  };
+  let avatarUrl = els.editAvatarUrl.value.trim();
+
+  const file = els.editAvatarFile && els.editAvatarFile.files[0];
+  if (file) {
+    const form = new FormData();
+    form.append('media', file);
+    const r = await fetch(`${API_BASE}/upload-media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${state.token}` },
+      body: form
+    });
+    const d = await r.json().catch(() => null);
+    if (r.ok && d && d.url) {
+      avatarUrl = d.url;
+    }
+  }
+
   await fetch(`${API_BASE}/profile`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${state.token}`
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      username: els.editName.value.trim(),
+      bio: els.editBio.value.trim(),
+      avatar_url: avatarUrl
+    })
   });
-  els.editModal.classList.add('hidden');
+
+  closeEditProfile();
   await loadProfile();
+  await loadFeed();
 }
 
-async function loadProfile() {
-  if (!state.token) {
-    if (els.profileBox) els.profileBox.innerHTML = '<p>Connect wallet to see your profile</p>';
-    return;
+async function toggleFollow(target) {
+  if (!state.token) return;
+  const current = document.getElementById('profile-follow-btn');
+  const isFollowing = current && current.dataset.followed === '1';
+  if (isFollowing) {
+    await fetch(`${API_BASE}/follow/${target}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${state.token}` }
+    });
+  } else {
+    await fetch(`${API_BASE}/follow`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${state.token}`
+      },
+      body: JSON.stringify({ target })
+    });
   }
-  const r = await fetch(`${API_BASE}/profile/me`, {
-    headers: { Authorization: `Bearer ${state.token}` }
+  await loadExternalProfile(target);
+}
+
+async function openUserProfile(address) {
+  state.viewingExternalProfile = true;
+  await loadExternalProfile(address);
+  setView('profile');
+}
+
+async function loadExternalProfile(address) {
+  const r = await fetch(`${API_BASE}/profile/${address}`, {
+    headers: state.token ? { Authorization: `Bearer ${state.token}` } : {}
   });
   const data = await r.json();
   state.profile = data;
-  state.viewingExternalProfile = false;
+  state.viewingExternalProfile = true;
   renderProfile();
 }
 
@@ -410,43 +451,6 @@ function renderProfile() {
     d.onclick = () => openPost(post);
     els.profilePosts.appendChild(d);
   });
-}
-
-async function toggleFollow(target) {
-  if (!state.token) return;
-  const current = document.getElementById('profile-follow-btn');
-  if (current && current.dataset.followed === '1') {
-    await fetch(`${API_BASE}/follow/${target}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${state.token}` }
-    });
-  } else {
-    await fetch(`${API_BASE}/follow`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${state.token}`
-      },
-      body: JSON.stringify({ target })
-    });
-  }
-  await loadExternalProfile(target);
-}
-
-async function openUserProfile(address, username, avatarUrl) {
-  state.viewingExternalProfile = true;
-  await loadExternalProfile(address);
-  setView('profile');
-}
-
-async function loadExternalProfile(address) {
-  const r = await fetch(`${API_BASE}/profile/${address}`, {
-    headers: state.token ? { Authorization: `Bearer ${state.token}` } : {}
-  });
-  const data = await r.json();
-  state.profile = data;
-  state.viewingExternalProfile = true;
-  renderProfile();
 }
 
 function openPost(post) {
@@ -540,7 +544,6 @@ function init() {
     setView('profile');
   };
 
-  // mobile nav
   if (els.mFeedBtn) els.mFeedBtn.onclick = () => setView('feed');
   if (els.mExploreBtn) els.mExploreBtn.onclick = () => setView('explore');
   if (els.mCreateBtn) els.mCreateBtn.onclick = () => setView('create');
