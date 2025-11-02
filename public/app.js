@@ -1,344 +1,319 @@
+const API = "";
 let currentWallet = null;
-let currentView = "feed";
-const apiBase = "";
+let currentPostForComments = null;
 
 const views = {
-  feed: document.getElementById("view-feed"),
-  explore: document.getElementById("view-explore"),
-  create: document.getElementById("view-create"),
-  profile: document.getElementById("view-profile")
+  feed: document.getElementById("feedView"),
+  explore: document.getElementById("exploreView"),
+  create: document.getElementById("createView"),
+  profile: document.getElementById("profileView")
 };
 
-const topTitle = document.getElementById("top-title");
-const feedList = document.getElementById("feed-list");
-const exploreGrid = document.getElementById("explore-grid");
-const profileContainer = document.getElementById("profile-container");
-const walletStatus = document.getElementById("wallet-status");
-const connectBtn = document.getElementById("connect-wallet");
-
-async function api(path, opts = {}) {
-  const res = await fetch(apiBase + path, opts);
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-function setView(view) {
-  currentView = view;
+function switchView(name) {
   Object.values(views).forEach(v => v.classList.remove("visible"));
-  views[view].classList.add("visible");
-  document.querySelectorAll(".menu-item").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.view === view);
+  views[name].classList.add("visible");
+  document.querySelectorAll(".nav-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.view === name);
   });
-  topTitle.textContent = view[0].toUpperCase() + view.slice(1);
+  if (name === "feed") loadFeed();
+  if (name === "explore") loadExplore();
+  if (name === "profile") loadMyProfile();
 }
 
-async function loadFeed() {
-  const posts = await api("/api/posts");
-  renderFeed(posts);
-}
+document.querySelectorAll(".nav-btn").forEach(btn => {
+  btn.addEventListener("click", () => switchView(btn.dataset.view));
+});
 
-function renderFeed(posts) {
-  feedList.innerHTML = "";
-  posts.forEach(p => {
-    const card = document.createElement("div");
-    card.className = "post-card";
-    card.innerHTML = `
-      <div class="post-header" data-wallet="${p.wallet_address}">
-        <div class="post-avatar">
-          ${p.avatar_url ? `<img src="${p.avatar_url}">` : p.username ? p.username[0].toUpperCase() : "H"}
-        </div>
-        <div class="post-user">
-          <div class="post-user-name">${p.username || "Unnamed"}</div>
-          <div class="post-user-address">${shortAddr(p.wallet_address)}</div>
-        </div>
-      </div>
-      <div class="post-media">
-        ${p.media_url ? `<img src="${p.media_url}" alt="post media">` : ""}
-      </div>
-      ${p.caption ? `<div class="post-caption">${p.caption}</div>` : ""}
-      <div class="post-actions" data-post="${p.id}">
-        <button data-like="${p.id}">♡ Like</button>
-        <button data-comment="${p.id}">💬 Comment</button>
-        <button data-share="${p.id}">↗ Share</button>
-        ${currentWallet && currentWallet.toLowerCase() === p.wallet_address.toLowerCase()
-          ? `<button data-delete="${p.id}">Delete</button>`
-          : ""}
-      </div>
-      <div class="post-footer">
-        ${p.likes || 0} likes · ${p.comments || 0} comments
-      </div>
-    `;
-    feedList.appendChild(card);
-  });
-}
-
-async function loadExplore() {
-  const posts = await api("/api/explore");
-  exploreGrid.innerHTML = "";
-  posts.forEach(p => {
-    const item = document.createElement("div");
-    item.className = "explore-item";
-    item.dataset.post = p.id;
-    item.innerHTML = `
-      <img src="${p.media_url}" alt="">
-    `;
-    exploreGrid.appendChild(item);
-  });
-}
-
-async function showProfile(wallet) {
-  const targetWallet = wallet || currentWallet;
-  if (!targetWallet) {
-    profileContainer.innerHTML = `<p>Connect wallet first.</p>`;
-    return;
-  }
-  const data = await api("/api/users/" + targetWallet);
-  const u = data.user;
-  const posts = data.posts || [];
-
-  profileContainer.innerHTML = `
-    <div class="profile-card">
-      <div class="profile-avatar">
-        ${u.avatar_url ? `<img src="${u.avatar_url}">` : (u.username ? u.username[0].toUpperCase() : "H")}
-      </div>
-      <div class="profile-meta">
-        <div class="profile-name">${u.username || "Unnamed"}</div>
-        <div class="profile-addr">${shortAddr(u.wallet_address)}</div>
-        <div class="profile-stats">
-          <span>${posts.length} posts</span>
-          <span>0 followers</span>
-          <span>0 following</span>
-        </div>
-        <div class="profile-bio">${u.bio || ""}</div>
-      </div>
-      ${targetWallet.toLowerCase() === (currentWallet || "").toLowerCase()
-        ? `<button class="profile-edit-btn" id="edit-profile-btn">Edit profile</button>`
-        : ""}
-    </div>
-    <div class="profile-posts" id="profile-posts"></div>
-  `;
-
-  const postsBox = document.getElementById("profile-posts");
-  posts.forEach(p => {
-    const el = document.createElement("div");
-    el.className = "post-card";
-    el.innerHTML = `
-      <div class="post-media">
-        <img src="${p.media_url}" alt="">
-      </div>
-      ${p.caption ? `<div class="post-caption">${p.caption}</div>` : ""}
-    `;
-    postsBox.appendChild(el);
-  });
-
-  const editBtn = document.getElementById("edit-profile-btn");
-  if (editBtn) {
-    editBtn.addEventListener("click", () => openEditProfile(u));
-  }
-}
-
-function openEditProfile(u) {
-  const backdrop = document.createElement("div");
-  backdrop.className = "modal-backdrop";
-  backdrop.innerHTML = `
-    <div class="modal">
-      <h3>Edit profile</h3>
-      <label>Name</label>
-      <input id="edit-name" value="${u.username || ""}">
-      <label>Bio</label>
-      <textarea id="edit-bio">${u.bio || ""}</textarea>
-      <label>Avatar (URL)</label>
-      <input id="edit-avatar-url" value="${u.avatar_url || ""}">
-      <label>Or upload avatar</label>
-      <input id="edit-avatar-file" type="file" accept="image/*">
-      <div class="modal-actions">
-        <button class="btn-muted" id="edit-cancel">Cancel</button>
-        <button class="btn-primary" id="edit-save">Save</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(backdrop);
-
-  document.getElementById("edit-cancel").onclick = () => backdrop.remove();
-  document.getElementById("edit-save").onclick = async () => {
-    const name = document.getElementById("edit-name").value.trim();
-    const bio = document.getElementById("edit-bio").value.trim();
-    const avatarUrl = document.getElementById("edit-avatar-url").value.trim();
-    const avatarFile = document.getElementById("edit-avatar-file").files[0] || null;
-
-    const fd = new FormData();
-    fd.append("username", name);
-    fd.append("bio", bio);
-    if (avatarUrl) fd.append("avatar_url", avatarUrl);
-    if (avatarFile) fd.append("avatar", avatarFile);
-
-    await fetch("/api/users/" + currentWallet, {
-      method: "POST",
-      body: fd
-    });
-
-    backdrop.remove();
-    showProfile(currentWallet);
-  };
-}
+document.getElementById("openSidebar")?.addEventListener("click", () => {
+  document.querySelector(".sidebar").classList.toggle("show");
+});
 
 async function connectWallet() {
+  if (!window.ethereum) {
+    alert("Install MetaMask or a PulseChain compatible wallet.");
+    return;
+  }
   try {
-    if (!window.ethereum || !window.ethers) {
-      alert("Metamask/ethers not available");
-      return;
-    }
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    const accounts = await provider.send("eth_requestAccounts", []);
-    const addr = accounts[0];
-    currentWallet = addr;
-    walletStatus.textContent = shortAddr(addr);
-    // ensure user exists
-    await api("/api/users/" + addr);
+    const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+    currentWallet = accounts[0];
+    document.getElementById("walletAddr").textContent = shortAddr(currentWallet);
+    document.getElementById("connectWalletTop").textContent = "Connected";
+    loadMyProfile();
   } catch (err) {
-    console.error(err);
     alert("Failed to connect wallet");
   }
 }
 
-function shortAddr(a) {
-  if (!a) return "";
-  return a.slice(0, 6) + "..." + a.slice(-4);
+document.getElementById("connectWallet").addEventListener("click", connectWallet);
+document.getElementById("connectWalletTop").addEventListener("click", connectWallet);
+
+function shortAddr(addr) {
+  if (!addr) return "";
+  return addr.slice(0, 6) + "..." + addr.slice(-4);
 }
 
-// create
-const createForm = document.getElementById("create-form");
-const createImg = document.getElementById("create-image");
-const createPreview = document.getElementById("create-preview");
-const createMsg = document.getElementById("create-msg");
-
-createImg.addEventListener("change", () => {
-  const file = createImg.files[0];
-  if (file) {
-    const url = URL.createObjectURL(file);
-    createPreview.src = url;
-    createPreview.style.display = "block";
+async function loadFeed() {
+  const list = document.getElementById("feedList");
+  list.innerHTML = "Loading...";
+  try {
+    const r = await fetch(API + "/api/posts");
+    const data = await r.json();
+    list.innerHTML = "";
+    data.forEach(p => {
+      list.appendChild(renderPost(p));
+    });
+  } catch (err) {
+    list.innerHTML = "Failed to load feed";
   }
-});
+}
 
-createForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
+function renderPost(p) {
+  const div = document.createElement("div");
+  div.className = "post-card";
+  const name = p.username || "Pulse user";
+  const wallet = p.wallet_address;
+  const media = p.media_url ? `<img src="${p.media_url}" alt="post media">` : "";
+  div.innerHTML = `
+    <div class="post-header">
+      <div class="avatar">${p.avatar_url ? `<img src="${p.avatar_url}"/>` : ""}</div>
+      <div class="user-meta" data-wallet="${wallet}">
+        <span class="name">${name}</span>
+        <span class="wallet">${shortAddr(wallet)}</span>
+      </div>
+    </div>
+    <div class="post-media">${media}</div>
+    <div class="post-footer">
+      <div class="action-row">
+        <button class="action-btn like-btn" data-id="${p.id}">♥ Like</button>
+        <button class="action-btn comment-btn" data-id="${p.id}">💬 Comment</button>
+        <button class="action-btn share-btn" data-id="${p.id}">↗ Share</button>
+        ${currentWallet && currentWallet.toLowerCase() === wallet.toLowerCase()
+          ? `<button class="action-btn delete-btn" data-id="${p.id}">Delete</button>`
+          : ""}
+      </div>
+      <div class="meta-row">
+        ${p.likes || 0} likes • ${p.comments || 0} comments
+      </div>
+      ${p.caption ? `<div class="meta-row">${p.caption}</div>` : ""}
+    </div>
+  `;
+  // listeners
+  div.querySelector(".user-meta").addEventListener("click", () => openProfile(wallet));
+  div.querySelector(".like-btn").addEventListener("click", () => likePost(p.id));
+  div.querySelector(".comment-btn").addEventListener("click", () => openComments(p.id));
+  div.querySelector(".share-btn").addEventListener("click", () => {
+    navigator.clipboard?.writeText(location.origin + "/?post=" + p.id);
+    alert("Post link copied");
+  });
+  const del = div.querySelector(".delete-btn");
+  if (del) {
+    del.addEventListener("click", () => deletePost(p.id));
+  }
+  return div;
+}
+
+async function likePost(id) {
   if (!currentWallet) {
-    alert("Connect wallet first");
+    alert("Connect wallet first.");
     return;
   }
-  const file = createImg.files[0];
-  if (!file) return;
-  const caption = document.getElementById("create-caption").value.trim();
+  await fetch(API + "/api/posts/" + id + "/like", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ wallet_address: currentWallet })
+  });
+  loadFeed();
+}
+
+async function deletePost(id) {
+  if (!currentWallet) return;
+  const ok = confirm("Delete this post.");
+  if (!ok) return;
+  await fetch(API + "/api/posts/" + id, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ wallet_address: currentWallet })
+  });
+  loadFeed();
+}
+
+const imageDrop = document.getElementById("imageDrop");
+const imageInput = document.getElementById("imageInput");
+imageDrop.addEventListener("click", () => imageInput.click());
+
+document.getElementById("createForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (!currentWallet) {
+    alert("Connect wallet first.");
+    return;
+  }
+  const file = imageInput.files[0];
+  if (!file) {
+    alert("Select an image.");
+    return;
+  }
+  const caption = document.getElementById("captionInput").value;
   const fd = new FormData();
   fd.append("image", file);
   fd.append("wallet_address", currentWallet);
   fd.append("caption", caption);
-  const res = await fetch("/api/posts", { method: "POST", body: fd });
-  if (!res.ok) {
-    createMsg.textContent = "upload failed";
-    return;
-  }
-  createMsg.textContent = "post created";
-  document.getElementById("create-caption").value = "";
-  createImg.value = "";
-  createPreview.style.display = "none";
-
-  await loadFeed();
-  setView("feed");
+  await fetch(API + "/api/posts", {
+    method: "POST",
+    body: fd
+  });
+  imageInput.value = "";
+  document.getElementById("captionInput").value = "";
+  switchView("feed");
 });
 
-// clicks
-document.addEventListener("click", async (e) => {
-  // menu
-  const menuBtn = e.target.closest(".menu-item");
-  if (menuBtn) {
-    const v = menuBtn.dataset.view;
-    setView(v);
-    if (v === "feed") loadFeed();
-    if (v === "explore") loadExplore();
-    if (v === "profile") showProfile();
+async function loadMyProfile() {
+  if (!currentWallet) {
+    document.getElementById("profileBox").innerHTML = "Connect wallet";
+    document.getElementById("profilePosts").innerHTML = "";
+    return;
   }
+  await openProfile(currentWallet, true);
+}
 
-  // connect wallet
-  if (e.target.id === "connect-wallet") {
-    connectWallet();
-  }
-
-  // post header to profile
-  const postHeader = e.target.closest(".post-header");
-  if (postHeader) {
-    const w = postHeader.dataset.wallet;
-    setView("profile");
-    showProfile(w);
-  }
-
-  // like comment share delete
-  const likeBtn = e.target.closest("[data-like]");
-  if (likeBtn) {
-    if (!currentWallet) return alert("Connect wallet first");
-    const id = likeBtn.dataset.like;
-    await api("/api/posts/" + id + "/like", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wallet_address: currentWallet })
+async function openProfile(wallet, isOwn = false) {
+  switchView("profile");
+  try {
+    const r = await fetch(API + "/api/users/" + wallet);
+    const data = await r.json();
+    const box = document.getElementById("profileBox");
+    const postsBox = document.getElementById("profilePosts");
+    box.innerHTML = `
+      <div class="avatar" style="width:56px;height:56px;">
+        ${data.user?.avatar_url ? `<img src="${data.user.avatar_url}"/>` : ""}
+      </div>
+      <div>
+        <div><strong>${data.user?.username || "Pulse user"}</strong></div>
+        <div>${shortAddr(wallet)}</div>
+        <div style="font-size:0.75rem;">${data.user?.bio || ""}</div>
+        <div style="font-size:0.68rem;margin-top:4px;">
+          ${data.followers} followers • ${data.following} following
+        </div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:6px;">
+        ${currentWallet && currentWallet.toLowerCase() === wallet.toLowerCase()
+          ? `<label class="primary-btn sm" style="cursor:pointer;">
+              Edit
+              <input type="file" id="avatarFile" hidden />
+            </label>`
+          : `<button id="followBtn" class="primary-btn sm">Follow</button>`}
+      </div>
+    `;
+    postsBox.innerHTML = "";
+    data.posts.forEach(p => {
+      const item = document.createElement("div");
+      item.className = "explore-item";
+      item.innerHTML = `<img src="${p.media_url}" alt=""/>`;
+      item.addEventListener("click", () => {
+        switchView("feed");
+        setTimeout(loadFeed, 150);
+      });
+      postsBox.appendChild(item);
     });
-    loadFeed();
-  }
 
-  const commentBtn = e.target.closest("[data-comment]");
-  if (commentBtn) {
-    if (!currentWallet) return alert("Connect wallet first");
-    const id = commentBtn.dataset.comment;
-    const text = prompt("Comment");
-    if (!text) return;
-    await api("/api/posts/" + id + "/comment", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wallet_address: currentWallet, text })
-    });
-    loadFeed();
-  }
-
-  const shareBtn = e.target.closest("[data-share]");
-  if (shareBtn) {
-    const id = shareBtn.dataset.share;
-    const url = location.origin + "/?post=" + id;
-    if (navigator.share) {
-      navigator.share({ title: "Hextagram", url });
-    } else {
-      navigator.clipboard.writeText(url);
-      alert("Link copied");
+    const avatarFile = document.getElementById("avatarFile");
+    if (avatarFile) {
+      avatarFile.addEventListener("change", async e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const fd = new FormData();
+        fd.append("avatar", file);
+        await fetch(API + "/api/users/" + currentWallet, {
+          method: "POST",
+          body: fd
+        });
+        openProfile(currentWallet, true);
+      });
     }
-  }
 
-  const deleteBtn = e.target.closest("[data-delete]");
-  if (deleteBtn) {
-    const id = deleteBtn.dataset.delete;
-    if (!confirm("Delete post?")) return;
-    await fetch("/api/posts/" + id, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wallet_address: currentWallet })
+    const followBtn = document.getElementById("followBtn");
+    if (followBtn && currentWallet) {
+      followBtn.addEventListener("click", async () => {
+        await fetch(API + "/api/follow", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ follower: currentWallet, followed: wallet })
+        });
+        openProfile(wallet);
+      });
+    }
+  } catch (err) {
+    document.getElementById("profileBox").innerHTML = "Failed to load profile.";
+  }
+}
+
+async function loadExplore() {
+  const grid = document.getElementById("exploreGrid");
+  grid.innerHTML = "Loading...";
+  try {
+    const r = await fetch(API + "/api/explore");
+    const data = await r.json();
+    grid.innerHTML = "";
+    data.forEach(p => {
+      const item = document.createElement("div");
+      item.className = "explore-item";
+      item.innerHTML = `<img src="${p.media_url}" alt="Explore"/>`;
+      item.addEventListener("click", () => {
+        switchView("feed");
+        setTimeout(loadFeed, 150);
+      });
+      grid.appendChild(item);
     });
-    loadFeed();
+  } catch (err) {
+    grid.innerHTML = "Failed to load explore.";
   }
+}
 
-  // explore item
-  const exploreItem = e.target.closest(".explore-item");
-  if (exploreItem) {
-    const postId = exploreItem.dataset.post;
-    // just go to feed and scroll (simpler)
-    setView("feed");
-    loadFeed().then(() => {
-      // optional: highlight
-    });
-  }
+// comments modal
+const modal = document.getElementById("commentModal");
+document.getElementById("closeComments").addEventListener("click", () => {
+  modal.classList.add("hidden");
+  currentPostForComments = null;
+});
 
-  // mobile open sidebar (icon is ::before)
-  if (e.target === topTitle && window.innerWidth < 960) {
-    document.querySelector(".sidebar").classList.toggle("open");
+async function openComments(postId) {
+  currentPostForComments = postId;
+  modal.classList.remove("hidden");
+  const list = document.getElementById("commentsList");
+  list.innerHTML = "Loading...";
+  const r = await fetch(API + "/api/posts/" + postId + "/comments");
+  const data = await r.json();
+  list.innerHTML = "";
+  data.forEach(c => {
+    const line = document.createElement("div");
+    line.className = "comment-line";
+    line.innerHTML = `
+      <div class="avatar" style="width:28px;height:28px;">
+        ${c.avatar_url ? `<img src="${c.avatar_url}">` : ""}
+      </div>
+      <div>
+        <strong>${c.username || shortAddr(c.wallet_address)}</strong>
+        <div>${c.text}</div>
+      </div>
+    `;
+    list.appendChild(line);
+  });
+}
+
+document.getElementById("sendComment").addEventListener("click", async () => {
+  if (!currentWallet) {
+    alert("Connect wallet.");
+    return;
   }
+  const text = document.getElementById("commentText").value.trim();
+  if (!text) return;
+  await fetch(API + "/api/posts/" + currentPostForComments + "/comment", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ wallet_address: currentWallet, text })
+  });
+  document.getElementById("commentText").value = "";
+  openComments(currentPostForComments);
+  loadFeed();
 });
 
 // init

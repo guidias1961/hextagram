@@ -3,62 +3,77 @@
 <head>
   <meta charset="UTF-8" />
   <title>Hextagram</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-icon">H</div>
-        <div class="brand-title">Hextagram</div>
-      </div>
-      <nav class="menu">
-        <button data-view="feed" class="menu-item active">Feed</button>
-        <button data-view="explore" class="menu-item">Explore</button>
-        <button data-view="create" class="menu-item">Create</button>
-        <button data-view="profile" class="menu-item">Profile</button>
+      <div class="brand">Hextagram</div>
+      <nav>
+        <button data-view="feed" class="nav-btn active">Feed</button>
+        <button data-view="explore" class="nav-btn">Explore</button>
+        <button data-view="create" class="nav-btn">Create</button>
+        <button data-view="profile" class="nav-btn">Profile</button>
       </nav>
       <div class="wallet-box">
         <div class="chain-pill">PulseChain</div>
-        <div id="wallet-status" class="wallet-status">Not connected</div>
-        <button id="connect-wallet" class="wallet-btn">Connect wallet</button>
+        <div id="walletAddr" class="wallet-text">Not connected</div>
+        <button id="connectWallet" class="primary-btn">Connect wallet</button>
       </div>
     </aside>
-    <main class="main-content">
-      <header class="topbar">
-        <div class="top-title" id="top-title">Feed</div>
-      </header>
-      <section id="view-feed" class="view visible">
-        <div id="feed-list" class="feed-list"></div>
+    <header class="topbar">
+      <div class="top-left">
+        <button id="openSidebar" class="icon-btn">☰</button>
+        <span class="logo-sm">Hextagram</span>
+      </div>
+      <div class="top-right">
+        <div class="chain-pill">PulseChain</div>
+        <button id="connectWalletTop" class="primary-btn sm">Connect</button>
+      </div>
+    </header>
+    <main class="main-area">
+      <section id="feedView" class="view visible">
+        <h2 class="view-title">Feed</h2>
+        <div id="feedList" class="feed-list"></div>
       </section>
-      <section id="view-explore" class="view">
-        <div id="explore-grid" class="explore-grid"></div>
+
+      <section id="exploreView" class="view">
+        <h2 class="view-title">Explore</h2>
+        <div id="exploreGrid" class="explore-grid"></div>
       </section>
-      <section id="view-create" class="view">
-        <div class="card create-card">
-          <h2>New post</h2>
-          <form id="create-form">
-            <label class="file-drop">
-              <input type="file" id="create-image" accept="image/*" required />
-              <span>Choose image</span>
-              <img id="create-preview" alt="" />
-            </label>
-            <textarea id="create-caption" placeholder="Optional caption"></textarea>
-            <button type="submit" class="primary-btn">Publish</button>
-          </form>
-          <div id="create-msg" class="form-msg"></div>
-        </div>
+
+      <section id="createView" class="view">
+        <h2 class="view-title">New post</h2>
+        <form id="createForm" class="card form-card">
+          <div class="image-drop" id="imageDrop">Choose image</div>
+          <input type="file" id="imageInput" accept="image/*" hidden />
+          <textarea id="captionInput" placeholder="Optional caption"></textarea>
+          <button type="submit" class="primary-btn">Publish</button>
+        </form>
       </section>
-      <section id="view-profile" class="view">
-        <div id="profile-container" class="profile-container"></div>
+
+      <section id="profileView" class="view">
+        <h2 class="view-title">Profile</h2>
+        <div id="profileBox" class="profile-box"></div>
+        <div id="profilePosts" class="profile-posts"></div>
       </section>
     </main>
   </div>
 
-  <!-- ethers first -->
-  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.min.js"></script>
-  <script src="/app.js"></script>
+  <div id="commentModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Comments</h3>
+      <div id="commentsList" class="comments-list"></div>
+      <div class="comment-input-box">
+        <input type="text" id="commentText" placeholder="Write a comment..." />
+        <button id="sendComment" class="primary-btn sm">Send</button>
+      </div>
+      <button id="closeComments" class="ghost-btn">Close</button>
+    </div>
+  </div>
+
+  <script src="app.js" defer></script>
 </body>
 </html>
 
