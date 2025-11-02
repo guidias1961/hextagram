@@ -1,321 +1,321 @@
-const API = "";
-let currentWallet = null;
-let currentPostForComments = null;
-
-const views = {
-  feed: document.getElementById("feedView"),
-  explore: document.getElementById("exploreView"),
-  create: document.getElementById("createView"),
-  profile: document.getElementById("profileView")
-};
-
-function switchView(name) {
-  Object.values(views).forEach(v => v.classList.remove("visible"));
-  views[name].classList.add("visible");
-  document.querySelectorAll(".nav-btn").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.view === name);
-  });
-  if (name === "feed") loadFeed();
-  if (name === "explore") loadExplore();
-  if (name === "profile") loadMyProfile();
+:root {
+  --pulse-pink: #ff00ea;
+  --pulse-cyan: #00c2ff;
+  --pulse-purple: #6c2bd9;
+  --bg: #f2f4f7;
+  --panel: #ffffff;
+  --text: #0f172a;
+  --muted: #6b7280;
+  --radius-lg: 1.25rem;
+  --shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
 }
 
-document.querySelectorAll(".nav-btn").forEach(btn => {
-  btn.addEventListener("click", () => switchView(btn.dataset.view));
-});
-
-document.getElementById("openSidebar")?.addEventListener("click", () => {
-  document.querySelector(".sidebar").classList.toggle("show");
-});
-
-async function connectWallet() {
-  if (!window.ethereum) {
-    alert("Install MetaMask or a PulseChain compatible wallet.");
-    return;
-  }
-  try {
-    const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-    currentWallet = accounts[0];
-    document.getElementById("walletAddr").textContent = shortAddr(currentWallet);
-    document.getElementById("connectWalletTop").textContent = "Connected";
-    loadMyProfile();
-  } catch (err) {
-    alert("Failed to connect wallet");
-  }
+* {
+  box-sizing: border-box;
 }
 
-document.getElementById("connectWallet").addEventListener("click", connectWallet);
-document.getElementById("connectWalletTop").addEventListener("click", connectWallet);
-
-function shortAddr(addr) {
-  if (!addr) return "";
-  return addr.slice(0, 6) + "..." + addr.slice(-4);
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
 }
 
-async function loadFeed() {
-  const list = document.getElementById("feedList");
-  list.innerHTML = "Loading...";
-  try {
-    const r = await fetch(API + "/api/posts");
-    const data = await r.json();
-    list.innerHTML = "";
-    data.forEach(p => {
-      list.appendChild(renderPost(p));
-    });
-  } catch (err) {
-    list.innerHTML = "Failed to load feed";
-  }
+.app-shell {
+  display: flex;
+  min-height: 100vh;
 }
 
-function renderPost(p) {
-  const div = document.createElement("div");
-  div.className = "post-card";
-  const name = p.username || "Pulse user";
-  const wallet = p.wallet_address;
-  const media = p.media_url ? `<img src="${p.media_url}" alt="post media">` : "";
-  div.innerHTML = `
-    <div class="post-header">
-      <div class="avatar">${p.avatar_url ? `<img src="${p.avatar_url}"/>` : ""}</div>
-      <div class="user-meta" data-wallet="${wallet}">
-        <span class="name">${name}</span>
-        <span class="wallet">${shortAddr(wallet)}</span>
-      </div>
-    </div>
-    <div class="post-media">${media}</div>
-    <div class="post-footer">
-      <div class="action-row">
-        <button class="action-btn like-btn" data-id="${p.id}">♥ Like</button>
-        <button class="action-btn comment-btn" data-id="${p.id}">💬 Comment</button>
-        <button class="action-btn share-btn" data-id="${p.id}">↗ Share</button>
-        ${currentWallet && currentWallet.toLowerCase() === wallet.toLowerCase()
-          ? `<button class="action-btn delete-btn" data-id="${p.id}">Delete</button>`
-          : ""}
-      </div>
-      <div class="meta-row">
-        ${p.likes || 0} likes • ${p.comments || 0} comments
-      </div>
-      ${p.caption ? `<div class="meta-row">${p.caption}</div>` : ""}
-    </div>
-  `;
-  // listeners
-  div.querySelector(".user-meta").addEventListener("click", () => openProfile(wallet));
-  div.querySelector(".like-btn").addEventListener("click", () => likePost(p.id));
-  div.querySelector(".comment-btn").addEventListener("click", () => openComments(p.id));
-  div.querySelector(".share-btn").addEventListener("click", () => {
-    navigator.clipboard?.writeText(location.origin + "/?post=" + p.id);
-    alert("Post link copied");
-  });
-  const del = div.querySelector(".delete-btn");
-  if (del) {
-    del.addEventListener("click", () => deletePost(p.id));
-  }
-  return div;
+.sidebar {
+  width: 240px;
+  background: #0f172a;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem 1rem 1.25rem 1.5rem;
+  position: sticky;
+  top: 0;
+  height: 100vh;
 }
 
-async function likePost(id) {
-  if (!currentWallet) {
-    alert("Connect wallet first.");
-    return;
-  }
-  await fetch(API + "/api/posts/" + id + "/like", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ wallet_address: currentWallet })
-  });
-  loadFeed();
+.logo {
+  font-weight: 700;
+  font-size: 1.25rem;
+  background: linear-gradient(135deg, var(--pulse-pink), var(--pulse-cyan));
+  -webkit-background-clip: text;
+  color: transparent;
 }
 
-async function deletePost(id) {
-  if (!currentWallet) return;
-  const ok = confirm("Delete this post.");
-  if (!ok) return;
-  await fetch(API + "/api/posts/" + id, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ wallet_address: currentWallet })
-  });
-  loadFeed();
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
-const imageDrop = document.getElementById("imageDrop");
-const imageInput = document.getElementById("imageInput");
-imageDrop.addEventListener("click", () => imageInput.click());
-
-document.getElementById("createForm").addEventListener("submit", async e => {
-  e.preventDefault();
-  if (!currentWallet) {
-    alert("Connect wallet first.");
-    return;
-  }
-  const file = imageInput.files[0];
-  if (!file) {
-    alert("Select an image.");
-    return;
-  }
-  const caption = document.getElementById("captionInput").value;
-  const fd = new FormData();
-  fd.append("image", file);
-  fd.append("wallet_address", currentWallet);
-  fd.append("caption", caption);
-  await fetch(API + "/api/posts", {
-    method: "POST",
-    body: fd
-  });
-  imageInput.value = "";
-  document.getElementById("captionInput").value = "";
-  switchView("feed");
-});
-
-async function loadMyProfile() {
-  if (!currentWallet) {
-    document.getElementById("profileBox").innerHTML = "Connect wallet";
-    document.getElementById("profilePosts").innerHTML = "";
-    return;
-  }
-  await openProfile(currentWallet, true);
+.nav-item {
+  background: transparent;
+  border: none;
+  color: #cbd5f5;
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.8rem;
+  cursor: pointer;
+  font-size: 0.95rem;
 }
 
-async function openProfile(wallet, isOwn = false) {
-  switchView("profile");
-  try {
-    const r = await fetch(API + "/api/users/" + wallet);
-    const data = await r.json();
-    const box = document.getElementById("profileBox");
-    const postsBox = document.getElementById("profilePosts");
-    box.innerHTML = `
-      <div class="avatar" style="width:56px;height:56px;">
-        ${data.user?.avatar_url ? `<img src="${data.user.avatar_url}"/>` : ""}
-      </div>
-      <div>
-        <div><strong>${data.user?.username || "Pulse user"}</strong></div>
-        <div>${shortAddr(wallet)}</div>
-        <div style="font-size:0.75rem;">${data.user?.bio || ""}</div>
-        <div style="font-size:0.68rem;margin-top:4px;">
-          ${data.followers} followers • ${data.following} following
-        </div>
-      </div>
-      <div style="margin-left:auto;display:flex;gap:6px;">
-        ${currentWallet && currentWallet.toLowerCase() === wallet.toLowerCase()
-          ? `<label class="primary-btn sm" style="cursor:pointer;">
-              Edit
-              <input type="file" id="avatarFile" hidden />
-            </label>`
-          : `<button id="followBtn" class="primary-btn sm">Follow</button>`}
-      </div>
-    `;
-    postsBox.innerHTML = "";
-    data.posts.forEach(p => {
-      const item = document.createElement("div");
-      item.className = "explore-item";
-      item.innerHTML = `<img src="${p.media_url}" alt=""/>`;
-      item.addEventListener("click", () => {
-        switchView("feed");
-        setTimeout(loadFeed, 150);
-      });
-      postsBox.appendChild(item);
-    });
-
-    const avatarFile = document.getElementById("avatarFile");
-    if (avatarFile) {
-      avatarFile.addEventListener("change", async e => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const fd = new FormData();
-        fd.append("avatar", file);
-        await fetch(API + "/api/users/" + currentWallet, {
-          method: "POST",
-          body: fd
-        });
-        openProfile(currentWallet, true);
-      });
-    }
-
-    const followBtn = document.getElementById("followBtn");
-    if (followBtn && currentWallet) {
-      followBtn.addEventListener("click", async () => {
-        await fetch(API + "/api/follow", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ follower: currentWallet, followed: wallet })
-        });
-        openProfile(wallet);
-      });
-    }
-  } catch (err) {
-    document.getElementById("profileBox").innerHTML = "Failed to load profile.";
-  }
+.nav-item.active,
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
 }
 
-async function loadExplore() {
-  const grid = document.getElementById("exploreGrid");
-  grid.innerHTML = "Loading...";
-  try {
-    const r = await fetch(API + "/api/explore");
-    const data = await r.json();
-    grid.innerHTML = "";
-    data.forEach(p => {
-      const item = document.createElement("div");
-      item.className = "explore-item";
-      item.innerHTML = `<img src="${p.media_url}" alt="Explore"/>`;
-      item.addEventListener("click", () => {
-        switchView("feed");
-        setTimeout(loadFeed, 150);
-      });
-      grid.appendChild(item);
-    });
-  } catch (err) {
-    grid.innerHTML = "Failed to load explore.";
-  }
+.wallet-box {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
-// comments modal
-const modal = document.getElementById("commentModal");
-document.getElementById("closeComments").addEventListener("click", () => {
-  modal.classList.add("hidden");
-  currentPostForComments = null;
-});
-
-async function openComments(postId) {
-  currentPostForComments = postId;
-  modal.classList.remove("hidden");
-  const list = document.getElementById("commentsList");
-  list.innerHTML = "Loading...";
-  const r = await fetch(API + "/api/posts/" + postId + "/comments");
-  const data = await r.json();
-  list.innerHTML = "";
-  data.forEach(c => {
-    const line = document.createElement("div");
-    line.className = "comment-line";
-    line.innerHTML = `
-      <div class="avatar" style="width:28px;height:28px;">
-        ${c.avatar_url ? `<img src="${c.avatar_url}">` : ""}
-      </div>
-      <div>
-        <strong>${c.username || shortAddr(c.wallet_address)}</strong>
-        <div>${c.text}</div>
-      </div>
-    `;
-    list.appendChild(line);
-  });
+.chain-tag {
+  background: rgba(255, 0, 234, 0.15);
+  border: 1px solid rgba(255, 0, 234, 0.35);
+  border-radius: 9999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  width: fit-content;
 }
 
-document.getElementById("sendComment").addEventListener("click", async () => {
-  if (!currentWallet) {
-    alert("Connect wallet.");
-    return;
-  }
-  const text = document.getElementById("commentText").value.trim();
-  if (!text) return;
-  await fetch(API + "/api/posts/" + currentPostForComments + "/comment", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ wallet_address: currentWallet, text })
-  });
-  document.getElementById("commentText").value = "";
-  openComments(currentPostForComments);
-  loadFeed();
-});
+.wallet-btn {
+  background: linear-gradient(135deg, var(--pulse-pink), var(--pulse-cyan));
+  border: none;
+  border-radius: 999px;
+  color: #0f172a;
+  font-weight: 600;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
 
-// init
-loadFeed();
+.main {
+  flex: 1;
+  padding: 1.5rem 2.5rem 2.5rem;
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.page-header h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.posts {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.post {
+  background: var(--panel);
+  border-radius: 1.25rem;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.post-header {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.95rem 1.1rem 0.25rem;
+  cursor: pointer;
+}
+
+.post-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  object-fit: cover;
+  background: #ddd;
+}
+
+.post-user {
+  font-weight: 600;
+}
+
+.post-addr {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.post-media img,
+.post-media video {
+  width: 100%;
+  display: block;
+  background: #000;
+}
+
+.post-footer {
+  padding: 0.7rem 1.1rem 1rem;
+}
+
+.post-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.post-actions button {
+  border: none;
+  background: #edf2ff;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.post-actions .danger {
+  background: rgba(255, 74, 74, 0.12);
+  color: #b91c1c;
+}
+
+.post-meta {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.post-caption {
+  margin-top: 0.25rem;
+}
+
+.card {
+  background: var(--panel);
+  border-radius: 1rem;
+  padding: 1rem;
+  box-shadow: var(--shadow);
+}
+
+.create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.file-drop {
+  background: #eef2ff;
+  border: 1.5px dashed rgba(108, 43, 217, 0.35);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  text-align: center;
+  cursor: pointer;
+}
+
+.file-drop input {
+  display: none;
+}
+
+textarea {
+  min-height: 90px;
+  resize: vertical;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  padding: 0.5rem 0.75rem;
+  font-family: inherit;
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, var(--pulse-pink), var(--pulse-cyan));
+  border: none;
+  border-radius: 0.75rem;
+  color: #0f172a;
+  font-weight: 600;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+
+.explore-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 1rem;
+}
+
+.explore-item {
+  background: #fff;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+
+.explore-item img {
+  width: 100%;
+  height: 170px;
+  object-fit: cover;
+}
+
+.profile-card {
+  display: flex;
+  gap: 1rem;
+  background: var(--panel);
+  padding: 1rem;
+  border-radius: 1rem;
+  box-shadow: var(--shadow);
+  margin-bottom: 1.25rem;
+}
+
+.profile-avatar {
+  width: 70px;
+  height: 70px;
+  border-radius: 999px;
+  object-fit: cover;
+  background: #ddd;
+}
+
+.section-title {
+  margin-top: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* mobile */
+@media (max-width: 920px) {
+  .app-shell {
+    flex-direction: column;
+  }
+  .sidebar {
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+  }
+  .nav {
+    flex-direction: row;
+    gap: 0.4rem;
+  }
+  .main {
+    padding: 1.1rem 1rem 2.5rem;
+  }
+  .profile-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .post {
+    border-radius: 0.9rem;
+  }
+}
 
