@@ -2,133 +2,61 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Hextagram</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div class="app-shell">
-    <!-- sidebar desktop -->
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <div class="logo-circle">H</div>
-        <span class="app-name">Hextagram</span>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">H</div>
+        <div class="brand-title">Hextagram</div>
       </div>
-      <nav class="sidebar-nav">
-        <button class="nav-btn active" data-view="feed">Feed</button>
-        <button class="nav-btn" data-view="explore">Explore</button>
-        <button class="nav-btn" data-view="create">Create</button>
-        <button class="nav-btn" data-view="profile">Profile</button>
+      <nav class="menu">
+        <button data-view="feed" class="menu-item active">Feed</button>
+        <button data-view="explore" class="menu-item">Explore</button>
+        <button data-view="create" class="menu-item">Create</button>
+        <button data-view="profile" class="menu-item">Profile</button>
       </nav>
-      <div class="sidebar-bottom">
-        <div class="chain-pill">
-          <span class="chain-dot"></span>
-          PulseChain
-        </div>
-        <button id="connectWalletBtn" class="primary-btn wallet-btn">Connect wallet</button>
-        <div id="connectedWallet" class="connected-wallet hidden"></div>
+      <div class="wallet-box">
+        <div class="chain-pill">PulseChain</div>
+        <div id="wallet-status" class="wallet-status">Not connected</div>
+        <button id="connect-wallet" class="wallet-btn">Connect wallet</button>
       </div>
     </aside>
-
-    <!-- main -->
-    <main class="main">
-      <!-- mobile topbar -->
-      <header class="topbar-mobile">
-        <div class="topbar-left">
-          <div class="logo-circle small">H</div>
-          <div class="topbar-info">
-            <div class="app-name">Hextagram</div>
-            <div class="app-sub">PulseChain social</div>
-          </div>
-        </div>
-        <button id="toggleSidebar" class="icon-btn" aria-label="menu">
-          <span class="icon-line"></span>
-          <span class="icon-line"></span>
-          <span class="icon-line"></span>
-        </button>
+    <main class="main-content">
+      <header class="topbar">
+        <div class="top-title" id="top-title">Feed</div>
       </header>
-
-      <!-- action row (problemática no mobile) -->
-      <div class="actions-row" id="actionsRow">
-        <button class="chip-btn" data-view="explore">Explore</button>
-        <span class="tag-pill">PulseChain</span>
-        <button class="chip-btn" data-view="create">Create</button>
-        <button id="connectWalletBtnMobile" class="primary-btn small">Connect wallet</button>
-        <div id="connectedWalletMobile" class="connected-wallet hidden"></div>
-      </div>
-
-      <!-- views -->
-      <section id="feed-view" class="view active">
-        <h2 class="section-title">Feed</h2>
-        <div id="feedList" class="feed-list">
-          <!-- posts vem do app.js -->
+      <section id="view-feed" class="view visible">
+        <div id="feed-list" class="feed-list"></div>
+      </section>
+      <section id="view-explore" class="view">
+        <div id="explore-grid" class="explore-grid"></div>
+      </section>
+      <section id="view-create" class="view">
+        <div class="card create-card">
+          <h2>New post</h2>
+          <form id="create-form">
+            <label class="file-drop">
+              <input type="file" id="create-image" accept="image/*" required />
+              <span>Choose image</span>
+              <img id="create-preview" alt="" />
+            </label>
+            <textarea id="create-caption" placeholder="Optional caption"></textarea>
+            <button type="submit" class="primary-btn">Publish</button>
+          </form>
+          <div id="create-msg" class="form-msg"></div>
         </div>
       </section>
-
-      <section id="explore-view" class="view">
-        <h2 class="section-title">Explore</h2>
-        <div id="exploreGrid" class="explore-grid">
-          <!-- explorations vem do app.js -->
-        </div>
+      <section id="view-profile" class="view">
+        <div id="profile-container" class="profile-container"></div>
       </section>
-
-      <section id="create-view" class="view">
-        <h2 class="section-title">New post</h2>
-        <div class="create-card">
-          <div class="upload-box" id="createImageBox">
-            <img id="createImagePreview" src="" alt="preview" class="hidden" />
-            <span id="createImagePlaceholder">Choose image</span>
-            <input type="file" id="createImageInput" accept="image/*" />
-          </div>
-          <textarea id="createCaption" class="input" rows="3" placeholder="Optional caption"></textarea>
-          <button id="publishPostBtn" class="primary-btn full">Publish</button>
-          <p id="createStatus" class="status-text"></p>
-        </div>
-      </section>
-
-      <section id="profile-view" class="view">
-        <h2 class="section-title">Profile</h2>
-        <div id="profileBox" class="profile-card">
-          <div class="profile-header">
-            <img id="profileAvatar" src="https://res.cloudinary.com/dgzxpadhhr/image/upload/v1730485224/default-pfp_ovycbz.png" alt="avatar" class="profile-avatar" />
-            <div class="profile-meta">
-              <div id="profileName" class="profile-name">username</div>
-              <div id="profileWallet" class="profile-wallet">0x...</div>
-              <div class="profile-stats">
-                <span><span id="profilePostsCount">0</span> posts</span>
-                <span><span id="profileFollowers">0</span> followers</span>
-                <span><span id="profileFollowing">0</span> following</span>
-              </div>
-            </div>
-            <button id="editProfileBtn" class="chip-btn">Edit profile</button>
-          </div>
-          <div id="profilePosts" class="profile-posts-grid">
-            <!-- cards do usuário -->
-          </div>
-        </div>
-      </section>
-
-      <!-- modal edit profile -->
-      <div id="editProfileModal" class="modal hidden">
-        <div class="modal-backdrop"></div>
-        <div class="modal-content">
-          <h3>Edit profile</h3>
-          <label class="form-label">Name</label>
-          <input type="text" id="editProfileName" class="input" />
-          <label class="form-label">Bio</label>
-          <textarea id="editProfileBio" class="input" rows="3"></textarea>
-          <label class="form-label">Avatar file</label>
-          <input type="file" id="editProfileAvatarFile" accept="image/*" />
-          <div class="modal-actions">
-            <button id="cancelEditProfile" class="chip-btn">Cancel</button>
-            <button id="saveEditProfile" class="primary-btn">Save</button>
-          </div>
-        </div>
-      </div>
     </main>
   </div>
 
-  <!-- ethers para não quebrar -->
+  <!-- ethers first -->
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.min.js"></script>
   <script src="/app.js"></script>
 </body>
