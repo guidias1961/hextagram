@@ -40,6 +40,15 @@ const els = {
   postClose: document.getElementById('post-close')
 };
 
+function linkify(text) {
+  if (!text) return '';
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  return text.replace(
+    urlRegex,
+    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
+}
+
 function setView(view) {
   state.currentView = view;
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
@@ -241,7 +250,7 @@ function createPostCard(post) {
     post.preview_comments.forEach(c => {
       const row = document.createElement('div');
       row.className = 'post-comment-item';
-      row.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${c.content}`;
+      row.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${linkify(c.content)}`;
       commentsBox.appendChild(row);
     });
     if (post.comment_count > 5) {
@@ -301,7 +310,7 @@ async function loadComments(postId) {
   comments.forEach(c => {
     const item = document.createElement('div');
     item.className = 'comment-item';
-    item.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${c.content}`;
+    item.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${linkify(c.content)}`;
     els.commentsList.appendChild(item);
   });
 }
