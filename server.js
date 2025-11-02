@@ -1,115 +1,417 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Hextagram • PulseChain Social Feed</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="./styles.css" />
-    <link rel="icon" href="./logo.png" type="image/png" />
-  </head>
-  <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <img src="./logo.png" alt="Hextagram" class="brand-icon" />
-          <div class="brand-title">Hextagram</div>
-        </div>
-        <nav class="nav">
-          <button id="nav-feed" class="active">Feed</button>
-          <button id="nav-explore">Explore</button>
-          <button id="nav-create">Create</button>
-          <button id="nav-profile">Profile</button>
-        </nav>
-        <div class="wallet-box">
-          <span class="wallet-label">Wallet</span>
-          <p id="wallet-address" class="wallet-address">Not connected</p>
-          <button id="connect-wallet">Connect</button>
-          <p class="network-pill">PulseChain</p>
-        </div>
-      </aside>
+import express from "express";
+import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
+import multer from "multer";
+import fs from "fs";
+import pkg from "pg";
+import jwt from "jsonwebtoken";
+import { ethers } from "ethers";
 
-      <main class="content">
-        <section id="feed-section" class="view">
-          <header class="section-header">
-            <h1>Feed</h1>
-          </header>
-          <div id="feed-list" class="feed-list"></div>
-        </section>
+const { Pool } = pkg;
 
-        <section id="explore-section" class="view hidden">
-          <header class="section-header">
-            <h1>Explore</h1>
-          </header>
-          <div id="explore-list" class="explore-grid"></div>
-        </section>
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-        <section id="create-section" class="view hidden">
-          <header class="section-header">
-            <h1>New post</h1>
-          </header>
-          <form id="create-form" class="create-form">
-            <label class="input-label">Image</label>
-            <input id="create-image" type="file" accept="image/*" />
-            <div id="create-preview" class="create-preview"></div>
-            <label class="input-label">Caption</label>
-            <textarea id="create-caption" placeholder="Say something..."></textarea>
-            <button type="submit" class="primary">Publish</button>
-          </form>
-        </section>
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-        <section id="profile-section" class="view hidden">
-          <header class="section-header">
-            <h1>Profile</h1>
-          </header>
-          <div id="profile-box" class="profile-box"></div>
-          <h2 class="subhead">My posts</h2>
-          <div id="profile-posts" class="profile-posts"></div>
-        </section>
-      </main>
-    </div>
+const publicDir = path.join(__dirname, "public");
+const uploadDir = path.join(__dirname, "uploads");
 
-    <div id="edit-profile-modal" class="modal hidden">
-      <div class="modal-body">
-        <div class="modal-top">
-          <h2>Edit profile</h2>
-        </div>
-        <label>Name</label>
-        <input id="edit-name" type="text" />
-        <label>Bio</label>
-        <textarea id="edit-bio"></textarea>
-        <label>Avatar URL</label>
-        <input id="edit-avatar-url" type="text" />
-        <label>Or upload avatar</label>
-        <input id="edit-avatar-file" type="file" accept="image/*" />
-        <div class="modal-actions">
-          <button id="edit-cancel" class="ghost">Cancel</button>
-          <button id="edit-save" class="primary">Save</button>
-        </div>
-      </div>
-    </div>
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
 
-    <div id="comments-modal" class="modal hidden">
-      <div class="modal-body modal-comments">
-        <div class="modal-top">
-          <h2 id="comments-title">Comments</h2>
-          <button id="comments-close" class="ghost">Close</button>
-        </div>
-        <div id="comments-list" class="comments-list"></div>
-        <div class="comments-input-box">
-          <input id="comments-input" type="text" placeholder="Write a comment..." />
-          <button id="comments-send" class="primary small">Send</button>
-        </div>
-      </div>
-    </div>
+const pool = new Pool({
+  connectionString:
+    process.env.DATABASE_URL ||
+    "postgres://postgres:postgres@localhost:5432/hextagram",
+});
 
-    <div id="post-modal" class="modal hidden">
-      <div class="modal-body post-modal-body">
-        <button id="post-close" class="ghost post-close">Close</button>
-        <div id="post-modal-content" class="post-modal-content"></div>
-      </div>
-    </div>
+async function query(text, params) {
+  const client = await pool.connect();
+  try {
+    return await client.query(text, params);
+  } finally {
+    client.release();
+  }
+}
 
-    <script type="module" src="./app.js"></script>
-  </body>
-</html>
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname) || ".png";
+    cb(null, file.fieldname + "-" + unique + ext);
+  },
+});
+const upload = multer({ storage });
+
+const JWT_SECRET = process.env.JWT_SECRET || "hextagram-secret";
+
+function makeToken(address) {
+  return jwt.sign({ address }, JWT_SECRET, { expiresIn: "30d" });
+}
+
+function getAddressFromReq(req) {
+  const auth = req.headers.authorization;
+  if (!auth) return null;
+  const parts = auth.split(" ");
+  if (parts.length !== 2) return null;
+  try {
+    const decoded = jwt.verify(parts[1], JWT_SECRET);
+    return decoded.address;
+  } catch (e) {
+    return null;
+  }
+}
+
+function verifySignature(address, message, signature) {
+  try {
+    const recovered = ethers.verifyMessage(message, signature);
+    return recovered.toLowerCase() === address.toLowerCase();
+  } catch (e) {
+    return false;
+  }
+}
+
+app.use("/uploads", express.static(uploadDir));
+app.use(express.static(publicDir));
+
+const indexPath = path.join(publicDir, "index.html");
+
+async function ensureTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS users (
+      address text PRIMARY KEY,
+      username text,
+      bio text,
+      avatar_url text,
+      created_at timestamp default now()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS posts (
+      id serial PRIMARY KEY,
+      user_address text NOT NULL,
+      media_url text,
+      media_type text,
+      caption text,
+      created_at timestamp default now()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS post_likes (
+      id serial PRIMARY KEY,
+      post_id integer NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      user_address text NOT NULL,
+      created_at timestamp default now(),
+      UNIQUE (post_id, user_address)
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS post_comments (
+      id serial PRIMARY KEY,
+      post_id integer NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      user_address text NOT NULL,
+      content text NOT NULL,
+      created_at timestamp default now()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS follows (
+      id serial PRIMARY KEY,
+      follower_address text NOT NULL,
+      following_address text NOT NULL,
+      created_at timestamp default now(),
+      UNIQUE (follower_address, following_address)
+    );
+  `);
+  await query(`UPDATE posts SET media_type = 'image' WHERE media_type IS NULL;`);
+}
+
+app.post("/api/auth", async (req, res) => {
+  const { address, message, signature } = req.body;
+  if (!address || !message || !signature)
+    return res.status(400).json({ error: "missing" });
+
+  const ok = verifySignature(address, message, signature);
+  if (!ok) return res.status(401).json({ error: "bad sig" });
+
+  const addr = address.toLowerCase();
+  await query(
+    `INSERT INTO users (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`,
+    [addr]
+  );
+  const token = makeToken(addr);
+  res.json({ token, address: addr });
+});
+
+app.post("/api/upload-media", (req, res) => {
+  upload.single("media")(req, res, (err) => {
+    if (err) return res.status(500).json({ error: "upload failed" });
+    if (!req.file) return res.status(400).json({ error: "no file" });
+    return res.json({ ok: true, url: "/uploads/" + req.file.filename });
+  });
+});
+
+app.post("/api/profile/avatar", (req, res) => {
+  const address = getAddressFromReq(req);
+  if (!address) return res.status(401).json({ error: "unauthorized" });
+  upload.single("avatar")(req, res, async (err) => {
+    if (err) return res.status(500).json({ error: "upload failed" });
+    if (!req.file) return res.status(400).json({ error: "no file" });
+    const url = "/uploads/" + req.file.filename;
+    await query(`UPDATE users SET avatar_url = $1 WHERE address = $2`, [
+      url,
+      address,
+    ]);
+    res.json({ ok: true, avatar_url: url });
+  });
+});
+
+app.post("/api/posts", async (req, res) => {
+  const address = getAddressFromReq(req);
+  if (!address) return res.status(401).json({ error: "unauthorized" });
+  const { media_url, caption } = req.body;
+  if (!media_url) return res.status(400).json({ error: "media_url required" });
+  const r = await query(
+    `INSERT INTO posts (user_address, media_url, media_type, caption)
+     VALUES ($1,$2,'image',$3) RETURNING *`,
+    [address, media_url, caption || null]
+  );
+  res.json(r.rows[0]);
+});
+
+app.get("/api/posts", async (req, res) => {
+  const viewer = getAddressFromReq(req);
+  const r = await query(`
+    SELECT
+      p.id,
+      p.user_address AS address,
+      p.media_url,
+      p.caption,
+      p.created_at,
+      u.username,
+      u.avatar_url,
+      COALESCE(l.cnt,0) AS like_count,
+      COALESCE(c.cnt,0) AS comment_count
+    FROM posts p
+    LEFT JOIN users u ON u.address = p.user_address
+    LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM post_likes pl WHERE pl.post_id = p.id) l ON TRUE
+    LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM post_comments pc WHERE pc.post_id = p.id) c ON TRUE
+    ORDER BY p.created_at DESC
+    LIMIT 200
+  `);
+
+  let posts = r.rows;
+  if (viewer) {
+    const liked = await query(
+      `SELECT post_id FROM post_likes WHERE user_address = $1`,
+      [viewer]
+    );
+    const likedSet = new Set(liked.rows.map((x) => String(x.post_id)));
+    posts = posts.map((p) => ({ ...p, liked: likedSet.has(String(p.id)) }));
+  }
+
+  res.json(posts);
+});
+
+app.post("/api/posts/:id/like", async (req, res) => {
+  const address = getAddressFromReq(req);
+  if (!address) return res.status(401).json({ error: "unauthorized" });
+  const id = Number(req.params.id);
+  const has = await query(
+    `SELECT 1 FROM post_likes WHERE post_id=$1 AND user_address=$2`,
+    [id, address]
+  );
+  if (has.rowCount) {
+    await query(
+      `DELETE FROM post_likes WHERE post_id=$1 AND user_address=$2`,
+      [id, address]
+    );
+  } else {
+    await query(
+      `INSERT INTO post_likes (post_id,user_address) VALUES ($1,$2)
+       ON CONFLICT DO NOTHING`,
+      [id, address]
+    );
+  }
+  const cnt = await query(`SELECT COUNT(*) FROM post_likes WHERE post_id=$1`, [
+    id,
+  ]);
+  res.json({
+    ok: true,
+    likes: Number(cnt.rows[0].count),
+    liked: !has.rowCount,
+  });
+});
+
+app.get("/api/posts/:id/comments", async (req, res) => {
+  const id = Number(req.params.id);
+  const r = await query(
+    `SELECT pc.id, pc.post_id, pc.user_address, pc.content, pc.created_at,
+            u.username, u.avatar_url
+     FROM post_comments pc
+     LEFT JOIN users u ON u.address = pc.user_address
+     WHERE pc.post_id = $1
+     ORDER BY pc.created_at ASC`,
+    [id]
+  );
+  res.json(r.rows);
+});
+
+app.post("/api/posts/:id/comments", async (req, res) => {
+  const address = getAddressFromReq(req);
+  if (!address) return res.status(401).json({ error: "unauthorized" });
+  const id = Number(req.params.id);
+  const { content } = req.body;
+  if (!content || !content.trim())
+    return res.status(400).json({ error: "content required" });
+  const r = await query(
+    `INSERT INTO post_comments (post_id,user_address,content)
+     VALUES ($1,$2,$3) RETURNING *`,
+    [id, address, content.trim()]
+  );
+  res.json(r.rows[0]);
+});
+
+app.delete("/api/posts/:id", async (req, res) => {
+  const address = getAddressFromReq(req);
+  if (!address) return res.status(401).json({ error: "unauthorized" });
+  const id = Number(req.params.id);
+  const post = await query(`SELECT * FROM posts WHERE id=$1`, [id]);
+  if (!post.rowCount) return res.status(404).json({ error: "not found" });
+  if (post.rows[0].user_address.toLowerCase() !== address.toLowerCase())
+    return res.status(403).json({ error: "forbidden" });
+  await query(`DELETE FROM posts WHERE id=$1`, [id]);
+  res.json({ ok: true });
+});
+
+app.get("/api/profile/me", async (req, res) => {
+  const address = getAddressFromReq(req);
+  if (!address) return res.status(401).json({ error: "unauthorized" });
+
+  const u = await query(`SELECT * FROM users WHERE address=$1`, [address]);
+  const user = u.rowCount ? u.rows[0] : { address };
+
+  const posts = await query(
+    `SELECT COUNT(*) FROM posts WHERE user_address=$1`,
+    [address]
+  );
+  const followers = await query(
+    `SELECT COUNT(*) FROM follows WHERE following_address=$1`,
+    [address]
+  );
+  const following = await query(
+    `SELECT COUNT(*) FROM follows WHERE follower_address=$1`,
+    [address]
+  );
+
+  res.json({
+    address,
+    username: user.username,
+    bio: user.bio,
+    avatar_url: user.avatar_url,
+    posts_count: Number(posts.rows[0].count),
+    followers_count: Number(followers.rows[0].count),
+    following_count: Number(following.rows[0].count),
+    is_following: false,
+  });
+});
+
+app.get("/api/profile/:address", async (req, res) => {
+  const viewer = getAddressFromReq(req);
+  const target = req.params.address.toLowerCase();
+
+  const u = await query(`SELECT * FROM users WHERE address=$1`, [target]);
+  const user = u.rowCount ? u.rows[0] : { address: target };
+
+  const posts = await query(
+    `SELECT COUNT(*) FROM posts WHERE user_address=$1`,
+    [target]
+  );
+  const followers = await query(
+    `SELECT COUNT(*) FROM follows WHERE following_address=$1`,
+    [target]
+  );
+  const following = await query(
+    `SELECT COUNT(*) FROM follows WHERE follower_address=$1`,
+    [target]
+  );
+
+  let is_following = false;
+  if (viewer) {
+    const f = await query(
+      `SELECT 1 FROM follows WHERE follower_address=$1 AND following_address=$2`,
+      [viewer, target]
+    );
+    is_following = f.rowCount > 0;
+  }
+
+  res.json({
+    address: target,
+    username: user.username,
+    bio: user.bio,
+    avatar_url: user.avatar_url,
+    posts_count: Number(posts.rows[0].count),
+    followers_count: Number(followers.rows[0].count),
+    following_count: Number(following.rows[0].count),
+    is_following,
+  });
+});
+
+app.post("/api/follow", async (req, res) => {
+  const follower = getAddressFromReq(req);
+  if (!follower) return res.status(401).json({ error: "unauthorized" });
+  const { target } = req.body;
+  if (!target) return res.status(400).json({ error: "target required" });
+  const f = follower.toLowerCase();
+  const t = target.toLowerCase();
+  if (f === t) return res.status(400).json({ error: "cannot follow self" });
+  await query(
+    `INSERT INTO follows (follower_address, following_address) VALUES ($1,$2)
+     ON CONFLICT (follower_address,following_address) DO NOTHING`,
+    [f, t]
+  );
+  res.json({ ok: true });
+});
+
+app.delete("/api/follow/:address", async (req, res) => {
+  const follower = getAddressFromReq(req);
+  if (!follower) return res.status(401).json({ error: "unauthorized" });
+  const t = req.params.address.toLowerCase();
+  await query(
+    `DELETE FROM follows WHERE follower_address=$1 AND following_address=$2`,
+    [follower.toLowerCase(), t]
+  );
+  res.json({ ok: true });
+});
+
+app.put("/api/profile", async (req, res) => {
+  const address = getAddressFromReq(req);
+  if (!address) return res.status(401).json({ error: "unauthorized" });
+  const { username, bio, avatar_url } = req.body;
+  await query(
+    `UPDATE users SET username=$1, bio=$2, avatar_url=$3 WHERE address=$4`,
+    [username || null, bio || null, avatar_url || null, address]
+  );
+  res.json({ ok: true });
+});
+
+app.get("*", (req, res) => {
+  res.sendFile(indexPath);
+});
+
+const PORT = process.env.PORT || 3000;
+
+ensureTables().then(() => {
+  app.listen(PORT, () => {
+    console.log("Hextagram running on", PORT);
+  });
+});
 
