@@ -1,321 +1,469 @@
-:root {
-  --pulse-pink: #ff00ea;
-  --pulse-cyan: #00c2ff;
-  --pulse-purple: #6c2bd9;
-  --bg: #f2f4f7;
-  --panel: #ffffff;
-  --text: #0f172a;
-  --muted: #6b7280;
-  --radius-lg: 1.25rem;
-  --shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+const API_BASE = `${window.location.origin}/api`;
+
+const state = {
+  address: null,
+  token: null,
+  posts: [],
+  profile: null,
+  currentView: 'feed'
+};
+
+const els = {
+  feedBtn: document.getElementById('nav-feed'),
+  exploreBtn: document.getElementById('nav-explore'),
+  createBtn: document.getElementById('nav-create'),
+  profileBtn: document.getElementById('nav-profile'),
+  connectBtn: document.getElementById('connect-wallet'),
+  addressLabel: document.getElementById('wallet-address'),
+  feedList: document.getElementById('feed-list'),
+  exploreList: document.getElementById('explore-list'),
+  createForm: document.getElementById('create-form'),
+  createFileInput: document.getElementById('create-image'),
+  createPreview: document.getElementById('create-preview'),
+  createCaption: document.getElementById('create-caption'),
+  profileBox: document.getElementById('profile-box'),
+  profilePosts: document.getElementById('profile-posts'),
+  editModal: document.getElementById('edit-profile-modal'),
+  editName: document.getElementById('edit-name'),
+  editBio: document.getElementById('edit-bio'),
+  editAvatarUrl: document.getElementById('edit-avatar-url'),
+  editAvatarFile: document.getElementById('edit-avatar-file'),
+  editCancel: document.getElementById('edit-cancel'),
+  editSave: document.getElementById('edit-save'),
+  commentsModal: document.getElementById('comments-modal'),
+  commentsList: document.getElementById('comments-list'),
+  commentsInput: document.getElementById('comments-input'),
+  commentsSend: document.getElementById('comments-send'),
+};
+
+function setView(view) {
+  state.currentView = view;
+  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+  document.getElementById(`${view}-section`).classList.remove('hidden');
+
+  if (view === 'feed') loadFeed();
+  if (view === 'explore') loadExplore();
+  if (view === 'profile') loadProfile();
 }
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
-}
-
-.app-shell {
-  display: flex;
-  min-height: 100vh;
-}
-
-.sidebar {
-  width: 240px;
-  background: #0f172a;
-  color: #fff;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  padding: 1.25rem 1rem 1.25rem 1.5rem;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-}
-
-.logo {
-  font-weight: 700;
-  font-size: 1.25rem;
-  background: linear-gradient(135deg, var(--pulse-pink), var(--pulse-cyan));
-  -webkit-background-clip: text;
-  color: transparent;
-}
-
-.nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.nav-item {
-  background: transparent;
-  border: none;
-  color: #cbd5f5;
-  text-align: left;
-  padding: 0.55rem 0.75rem;
-  border-radius: 0.8rem;
-  cursor: pointer;
-  font-size: 0.95rem;
-}
-
-.nav-item.active,
-.nav-item:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-
-.wallet-box {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.chain-tag {
-  background: rgba(255, 0, 234, 0.15);
-  border: 1px solid rgba(255, 0, 234, 0.35);
-  border-radius: 9999px;
-  padding: 0.35rem 0.75rem;
-  font-size: 0.8rem;
-  width: fit-content;
-}
-
-.wallet-btn {
-  background: linear-gradient(135deg, var(--pulse-pink), var(--pulse-cyan));
-  border: none;
-  border-radius: 999px;
-  color: #0f172a;
-  font-weight: 600;
-  padding: 0.4rem 0.6rem;
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
-.main {
-  flex: 1;
-  padding: 1.5rem 2.5rem 2.5rem;
-  max-width: 1100px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.25rem;
-}
-
-.page-header h1 {
-  margin: 0;
-  font-size: 1.3rem;
-}
-
-.posts {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.post {
-  background: var(--panel);
-  border-radius: 1.25rem;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-}
-
-.post-header {
-  display: flex;
-  gap: 0.6rem;
-  align-items: center;
-  padding: 0.95rem 1.1rem 0.25rem;
-  cursor: pointer;
-}
-
-.post-avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 999px;
-  object-fit: cover;
-  background: #ddd;
-}
-
-.post-user {
-  font-weight: 600;
-}
-
-.post-addr {
-  font-size: 0.7rem;
-  color: var(--muted);
-}
-
-.post-media img,
-.post-media video {
-  width: 100%;
-  display: block;
-  background: #000;
-}
-
-.post-footer {
-  padding: 0.7rem 1.1rem 1rem;
-}
-
-.post-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.5rem;
-}
-
-.post-actions button {
-  border: none;
-  background: #edf2ff;
-  padding: 0.35rem 0.75rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.post-actions .danger {
-  background: rgba(255, 74, 74, 0.12);
-  color: #b91c1c;
-}
-
-.post-meta {
-  font-size: 0.7rem;
-  color: var(--muted);
-}
-
-.post-caption {
-  margin-top: 0.25rem;
-}
-
-.card {
-  background: var(--panel);
-  border-radius: 1rem;
-  padding: 1rem;
-  box-shadow: var(--shadow);
-}
-
-.create-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.file-drop {
-  background: #eef2ff;
-  border: 1.5px dashed rgba(108, 43, 217, 0.35);
-  border-radius: 0.75rem;
-  padding: 1.25rem;
-  text-align: center;
-  cursor: pointer;
-}
-
-.file-drop input {
-  display: none;
-}
-
-textarea {
-  min-height: 90px;
-  resize: vertical;
-  border-radius: 0.75rem;
-  border: 1px solid #e2e8f0;
-  padding: 0.5rem 0.75rem;
-  font-family: inherit;
-}
-
-.primary-btn {
-  background: linear-gradient(135deg, var(--pulse-pink), var(--pulse-cyan));
-  border: none;
-  border-radius: 0.75rem;
-  color: #0f172a;
-  font-weight: 600;
-  padding: 0.5rem 0.75rem;
-  cursor: pointer;
-}
-
-.explore-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 1rem;
-}
-
-.explore-item {
-  background: #fff;
-  border-radius: 0.75rem;
-  overflow: hidden;
-  cursor: pointer;
-  box-shadow: var(--shadow);
-}
-
-.explore-item img {
-  width: 100%;
-  height: 170px;
-  object-fit: cover;
-}
-
-.profile-card {
-  display: flex;
-  gap: 1rem;
-  background: var(--panel);
-  padding: 1rem;
-  border-radius: 1rem;
-  box-shadow: var(--shadow);
-  margin-bottom: 1.25rem;
-}
-
-.profile-avatar {
-  width: 70px;
-  height: 70px;
-  border-radius: 999px;
-  object-fit: cover;
-  background: #ddd;
-}
-
-.section-title {
-  margin-top: 1rem;
-  margin-bottom: 0.75rem;
-}
-
-.muted {
-  color: var(--muted);
-  font-size: 0.75rem;
-}
-
-/* mobile */
-@media (max-width: 920px) {
-  .app-shell {
-    flex-direction: column;
-  }
-  .sidebar {
-    width: 100%;
-    height: auto;
-    flex-direction: row;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.75rem 1rem;
-  }
-  .nav {
-    flex-direction: row;
-    gap: 0.4rem;
-  }
-  .main {
-    padding: 1.1rem 1rem 2.5rem;
-  }
-  .profile-card {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  .post {
-    border-radius: 0.9rem;
+function setAuth(address, token) {
+  state.address = address;
+  state.token = token;
+  els.addressLabel.textContent = address ? shortenAddress(address) : 'Not connected';
+  if (address) {
+    els.connectBtn.textContent = 'Connected';
+    els.connectBtn.disabled = true;
   }
 }
+
+function shortenAddress(addr) {
+  if (!addr) return '';
+  return addr.slice(0, 6) + '...' + addr.slice(-4);
+}
+
+async function connectWallet() {
+  if (!window.ethereum) {
+    alert('Install MetaMask');
+    return;
+  }
+  const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+  const address = accounts[0];
+  const message = `Login to Hextagram\n${new Date().toISOString()}`;
+  const signature = await window.ethereum.request({
+    method: 'personal_sign',
+    params: [message, address],
+  });
+
+  const res = await fetch(`${API_BASE}/auth`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address, message, signature }),
+  });
+  if (!res.ok) {
+    alert('Auth failed');
+    return;
+  }
+  const data = await res.json();
+  setAuth(data.address, data.token);
+  loadFeed();
+  loadProfile();
+}
+
+async function loadFeed() {
+  const res = await fetch(`${API_BASE}/posts`, {
+    headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+  });
+  const posts = await res.json();
+  state.posts = posts;
+  renderFeed();
+}
+
+function renderFeed() {
+  els.feedList.innerHTML = '';
+  if (!state.posts || state.posts.length === 0) {
+    els.feedList.innerHTML = '<p class="empty">No posts yet</p>';
+    return;
+  }
+  state.posts.forEach(post => {
+    const card = createPostCard(post);
+    els.feedList.appendChild(card);
+  });
+}
+
+function createPostCard(post) {
+  const card = document.createElement('article');
+  card.className = 'post-card';
+
+  const header = document.createElement('div');
+  header.className = 'post-header';
+
+  const avatar = document.createElement('div');
+  avatar.className = 'post-avatar';
+  if (post.avatar_url) {
+    avatar.style.backgroundImage = `url(${post.avatar_url})`;
+  }
+
+  const user = document.createElement('div');
+  user.className = 'post-user';
+  user.innerHTML = `<strong>${post.username || shortenAddress(post.address)}</strong><span>${new Date(post.created_at).toLocaleString()}</span>`;
+
+  header.appendChild(avatar);
+  header.appendChild(user);
+
+  if (state.address && state.address.toLowerCase() === post.address.toLowerCase()) {
+    const delBtn = document.createElement('button');
+    delBtn.className = 'ghost small';
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = () => deletePost(post.id);
+    header.appendChild(delBtn);
+  }
+
+  const media = document.createElement('div');
+  media.className = 'post-media';
+  if (post.media_url) {
+    const img = document.createElement('img');
+    img.src = post.media_url;
+    img.alt = post.caption || '';
+    media.appendChild(img);
+  } else {
+    media.innerHTML = '<div class="no-media">media not found</div>';
+  }
+
+  const caption = document.createElement('p');
+  caption.className = 'post-caption';
+  caption.textContent = post.caption || '';
+
+  const actions = document.createElement('div');
+  actions.className = 'post-actions';
+
+  const likeBtn = document.createElement('button');
+  likeBtn.textContent = post.liked ? `♥ ${post.like_count}` : `♡ ${post.like_count}`;
+  likeBtn.onclick = () => toggleLike(post.id);
+
+  const commentBtn = document.createElement('button');
+  commentBtn.textContent = `Comments ${post.comment_count}`;
+  commentBtn.onclick = () => openComments(post);
+
+  const shareBtn = document.createElement('button');
+  shareBtn.textContent = 'Share';
+  shareBtn.onclick = () => sharePost(post);
+
+  actions.appendChild(likeBtn);
+  actions.appendChild(commentBtn);
+  actions.appendChild(shareBtn);
+
+  card.appendChild(header);
+  card.appendChild(media);
+  card.appendChild(caption);
+  card.appendChild(actions);
+
+  return card;
+}
+
+async function toggleLike(postId) {
+  if (!state.token) {
+    alert('Connect wallet first');
+    return;
+  }
+  const res = await fetch(`${API_BASE}/posts/${postId}/like`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${state.token}`,
+    },
+  });
+  const data = await res.json();
+  const idx = state.posts.findIndex(p => p.id === postId);
+  if (idx !== -1) {
+    state.posts[idx].like_count = data.likes;
+    state.posts[idx].liked = data.liked;
+    renderFeed();
+  }
+}
+
+function openComments(post) {
+  els.commentsModal.classList.remove('hidden');
+  els.commentsModal.dataset.postId = post.id;
+  document.getElementById('comments-title').textContent = 'Comments';
+  loadComments(post.id);
+}
+
+async function loadComments(postId) {
+  const res = await fetch(`${API_BASE}/posts/${postId}/comments`);
+  const comments = await res.json();
+  els.commentsList.innerHTML = '';
+  comments.forEach(c => {
+    const item = document.createElement('div');
+    item.className = 'comment-item';
+    item.innerHTML = `<strong>${c.username || shortenAddress(c.user_address)}</strong> ${c.content}`;
+    els.commentsList.appendChild(item);
+  });
+}
+
+async function sendComment() {
+  const postId = Number(els.commentsModal.dataset.postId);
+  const text = els.commentsInput.value.trim();
+  if (!text) return;
+  if (!state.token) {
+    alert('Connect wallet first');
+    return;
+  }
+  await fetch(`${API_BASE}/posts/${postId}/comments`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${state.token}`,
+    },
+    body: JSON.stringify({ content: text }),
+  });
+  els.commentsInput.value = '';
+  await loadComments(postId);
+  await loadFeed();
+}
+
+function closeComments() {
+  els.commentsModal.classList.add('hidden');
+  els.commentsList.innerHTML = '';
+}
+
+function sharePost(post) {
+  const url = `${window.location.origin}/#post-${post.id}`;
+  navigator.clipboard.writeText(url).then(() => {
+    alert('Link copied');
+  });
+}
+
+async function deletePost(postId) {
+  if (!state.token) {
+    alert('Connect wallet first');
+    return;
+  }
+  if (!confirm('Delete this post?')) return;
+  await fetch(`${API_BASE}/posts/${postId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${state.token}`,
+    },
+  });
+  await loadFeed();
+  await loadProfile();
+}
+
+// CREATE POST
+async function submitCreate(e) {
+  e.preventDefault();
+  if (!state.token) {
+    alert('Connect wallet first');
+    return;
+  }
+  const file = els.createFileInput.files[0];
+  if (!file) {
+    alert('Select an image');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('media', file);
+
+  const uploadRes = await fetch(`${API_BASE}/upload-media`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${state.token}`,
+    },
+    body: formData,
+  });
+  const uploadData = await uploadRes.json();
+  if (!uploadRes.ok || !uploadData.url) {
+    alert('Upload failed');
+    return;
+  }
+
+  const postRes = await fetch(`${API_BASE}/posts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${state.token}`,
+    },
+    body: JSON.stringify({
+      media_url: uploadData.url,
+      caption: els.createCaption.value,
+    }),
+  });
+  if (!postRes.ok) {
+    alert('Post failed');
+    return;
+  }
+
+  els.createFileInput.value = '';
+  els.createCaption.value = '';
+  els.createPreview.innerHTML = '';
+  setView('feed');
+  await loadFeed();
+}
+
+function handleCreatePreview() {
+  const file = els.createFileInput.files[0];
+  if (!file) {
+    els.createPreview.innerHTML = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    els.createPreview.innerHTML = `<img src="${reader.result}" alt="preview" />`;
+  };
+  reader.readAsDataURL(file);
+}
+
+// PROFILE
+async function loadProfile() {
+  if (!state.token) {
+    els.profileBox.innerHTML = '<p>Connect wallet to see your profile</p>';
+    return;
+  }
+  const res = await fetch(`${API_BASE}/profile/me`, {
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  const data = await res.json();
+  state.profile = data;
+  renderProfile();
+}
+
+function renderProfile() {
+  const p = state.profile;
+  if (!p) return;
+
+  els.profileBox.innerHTML = `
+    <div class="profile-header">
+      <div class="profile-avatar" style="background-image: ${p.avatar_url ? `url(${p.avatar_url})` : 'none'}"></div>
+      <div>
+        <h2>${p.username || shortenAddress(p.address)}</h2>
+        <p class="muted">${p.address}</p>
+        <p>${p.posts_count} posts • ${p.followers_count} followers • ${p.following_count} following</p>
+      </div>
+      <button id="profile-edit-btn" class="ghost">Edit profile</button>
+    </div>
+    <p>${p.bio || ''}</p>
+  `;
+
+  document.getElementById('profile-edit-btn').onclick = openEditProfile;
+
+  // show my posts using feed data
+  const myPosts = state.posts.filter(post => post.address.toLowerCase() === p.address.toLowerCase());
+  els.profilePosts.innerHTML = '';
+  myPosts.forEach(post => {
+    if (!post.media_url) return;
+    const img = document.createElement('img');
+    img.src = post.media_url;
+    img.alt = post.caption || '';
+    els.profilePosts.appendChild(img);
+  });
+}
+
+function openEditProfile() {
+  const p = state.profile;
+  els.editModal.classList.remove('hidden');
+  els.editName.value = p?.username || '';
+  els.editBio.value = p?.bio || '';
+  els.editAvatarUrl.value = p?.avatar_url || '';
+}
+
+function closeEditProfile() {
+  els.editModal.classList.add('hidden');
+  els.editAvatarFile.value = '';
+}
+
+async function saveProfile() {
+  let avatarUrl = els.editAvatarUrl.value.trim();
+
+  const avatarFile = els.editAvatarFile.files[0];
+  if (avatarFile) {
+    const formData = new FormData();
+    formData.append('avatar', avatarFile);
+    const upload = await fetch(`${API_BASE}/profile/avatar`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${state.token}`,
+      },
+      body: formData,
+    });
+    const data = await upload.json();
+    avatarUrl = data.avatar_url;
+  }
+
+  await fetch(`${API_BASE}/profile`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${state.token}`,
+    },
+    body: JSON.stringify({
+      username: els.editName.value.trim(),
+      bio: els.editBio.value.trim(),
+      avatar_url: avatarUrl,
+    }),
+  });
+
+  closeEditProfile();
+  await loadProfile();
+  await loadFeed();
+}
+
+// EXPLORE
+async function loadExplore() {
+  const res = await fetch(`${API_BASE}/posts`);
+  const posts = await res.json();
+  els.exploreList.innerHTML = '';
+  posts.forEach(post => {
+    if (!post.media_url) return;
+    const img = document.createElement('img');
+    img.src = post.media_url;
+    img.alt = post.caption || '';
+    els.exploreList.appendChild(img);
+  });
+}
+
+// events
+els.connectBtn.addEventListener('click', connectWallet);
+els.feedBtn.addEventListener('click', () => {
+  setView('feed');
+});
+els.exploreBtn.addEventListener('click', () => {
+  setView('explore');
+});
+els.createBtn.addEventListener('click', () => {
+  setView('create');
+});
+els.profileBtn.addEventListener('click', () => {
+  setView('profile');
+});
+els.createForm.addEventListener('submit', submitCreate);
+els.createFileInput.addEventListener('change', handleCreatePreview);
+els.editCancel.addEventListener('click', closeEditProfile);
+els.editSave.addEventListener('click', saveProfile);
+document.getElementById('comments-close').addEventListener('click', closeComments);
+els.commentsSend.addEventListener('click', sendComment);
+
+// initial
+setView('feed');
+loadFeed();
 
