@@ -33,7 +33,6 @@ const els = {
   postModal: $('post-modal'),
   postModalContent: $('post-modal-content'),
   postClose: $('post-close'),
-  // mobile
   mFeedBtn: $('m-nav-feed'),
   mExploreBtn: $('m-nav-explore'),
   mCreateBtn: $('m-nav-create'),
@@ -71,10 +70,10 @@ function applyAuthToUI() {
 
 function saveAuth() {
   if (state.token && state.address) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      address: state.address,
-      token: state.token
-    }));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ address: state.address, token: state.token })
+    );
   } else {
     localStorage.removeItem(STORAGE_KEY);
   }
@@ -368,6 +367,39 @@ async function saveProfile() {
   await loadFeed();
 }
 
+async function loadProfile() {
+  if (!state.token) {
+    if (els.profileBox) els.profileBox.innerHTML = '<p>Connect wallet to see your profile</p>';
+    return;
+  }
+  let data = null;
+  try {
+    const r = await fetch(`${API_BASE}/profile/me`, {
+      headers: { Authorization: `Bearer ${state.token}` }
+    });
+    if (r.ok) {
+      data = await r.json();
+    }
+  } catch (e) {
+    data = null;
+  }
+  if (!data) {
+    data = {
+      address: state.address,
+      username: null,
+      bio: '',
+      avatar_url: '',
+      posts_count: 0,
+      followers_count: 0,
+      following_count: 0,
+      is_following: false
+    };
+  }
+  state.profile = data;
+  state.viewingExternalProfile = false;
+  renderProfile();
+}
+
 async function toggleFollow(target) {
   if (!state.token) return;
   const current = document.getElementById('profile-follow-btn');
@@ -409,6 +441,7 @@ async function loadExternalProfile(address) {
 function renderProfile() {
   if (!els.profileBox || !state.profile) return;
   const p = state.profile;
+
   const isOwn = state.address && p.address && state.address.toLowerCase() === p.address.toLowerCase();
   const canFollow = state.token && !isOwn;
 
@@ -416,9 +449,9 @@ function renderProfile() {
     <div class="profile-header">
       <div class="profile-avatar" style="background-image:${p.avatar_url ? `url(${p.avatar_url})` : 'none'}"></div>
       <div>
-        <h2>${p.username || shorten(p.address)}</h2>
-        <p class="muted">${p.address}</p>
-        <p>${p.posts_count} posts • ${p.followers_count} followers • ${p.following_count} following</p>
+        <h2>${p.username || (p.address ? shorten(p.address) : 'User')}</h2>
+        <p class="muted">${p.address || ''}</p>
+        <p>${p.posts_count || 0} posts • ${p.followers_count || 0} followers • ${p.following_count || 0} following</p>
       </div>
       ${isOwn
         ? '<button id="profile-edit-btn" class="ghost">Edit profile</button>'
@@ -440,8 +473,13 @@ function renderProfile() {
 
   if (!els.profilePosts) return;
   els.profilePosts.innerHTML = '';
-  const myPosts = state.posts.filter(post => post.address && post.address.toLowerCase() === p.address.toLowerCase());
-  myPosts.forEach(post => {
+
+  const targetAddr = p.address ? p.address.toLowerCase() : null;
+  const list = targetAddr
+    ? state.posts.filter(post => post.address && post.address.toLowerCase() === targetAddr)
+    : [];
+
+  list.forEach(post => {
     if (!post.media_url) return;
     const d = document.createElement('div');
     d.className = 'profile-post';
