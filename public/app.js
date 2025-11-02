@@ -510,10 +510,11 @@ connectWalletBtn.addEventListener('click', async () => {
     walletStatus.textContent = sliceAddress(account);
     localStorage.setItem('hextagram_address', account);
 
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
     const message = 'Login to Hextagram with wallet ' + account;
-    const signature = await signer.signMessage(message);
+    const signature = await window.ethereum.request({
+      method: 'personal_sign',
+      params: [message, account]
+    });
 
     const auth = await fetchJSON('/api/auth', {
       method: 'POST',
