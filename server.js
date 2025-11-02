@@ -14,45 +14,33 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 const uploadsDir = path.join(__dirname, 'uploads');
+
 if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+  fs.mkdirSync(uploadsDir);
 }
 
-// onde está o front
-const publicDir = fs.existsSync(path.join(__dirname, 'public'))
-  ? path.join(__dirname, 'public')
-  : __dirname;
-
-const indexPath = fs.existsSync(path.join(publicDir, 'index.html'))
-  ? path.join(publicDir, 'index.html')
-  : path.join(__dirname, 'index.html');
-
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use('/uploads', express.static(uploadsDir));
-app.use(express.static(publicDir)); // serve css, js, etc
-
-const JWT_SECRET = process.env.JWT_SECRET || 'hextagram-secret';
-
-// storage local
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) =>
     cb(null, Date.now() + '-' + Math.round(Math.random() * 1e9) + path.extname(file.originalname || ''))
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
 
-function verifySignature(address, message, signature) {
-  try {
-    const recovered = ethers.verifyMessage(message, signature);
-    return recovered.toLowerCase() === address.toLowerCase();
-  } catch (e) {
-    return false;
-  }
-}
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+
+app.use(cors());
+app.use(express.json());
+app.use('/uploads', express.static(uploadsDir));
+const indexPath = path.join(__dirname, 'index.html');
+app.use(express.static(__dirname));
+
 function makeToken(address) {
   return jwt.sign({ address }, JWT_SECRET, { expiresIn: '30d' });
 }
+
 function getAddressFromReq(req) {
   const auth = req.headers.authorization;
   if (!auth) return null;
@@ -68,60 +56,61 @@ function getAddressFromReq(req) {
 async function ensureTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS users (
-      address text PRIMARY KEY,
-      username text,
-      bio text,
-      avatar_url text,
-      created_at timestamp default now()
-    );
+      address VARCHAR(80) PRIMARY KEY,
+      username VARCHAR(80),
+      bio TEXT,
+      avatar_url TEXT,
+      created_at TIMESTAMP DEFAULT now()
+    )
   `);
+
   await query(`
     CREATE TABLE IF NOT EXISTS posts (
-      id serial PRIMARY KEY,
-      user_address text NOT NULL,
-      media_url text,
-      media_type text,
-      caption text,
-      created_at timestamp default now()
-    );
+      id SERIAL PRIMARY KEY,
+      address VARCHAR(80) REFERENCES users(address),
+      media_url TEXT,
+      caption TEXT,
+      created_at TIMESTAMP DEFAULT now()
+    )
   `);
+
   await query(`
-    CREATE TABLE IF NOT EXISTS post_likes (
-      id serial PRIMARY KEY,
-      post_id integer NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-      user_address text NOT NULL,
-      created_at timestamp default now(),
-      UNIQUE (post_id, user_address)
-    );
+    CREATE TABLE IF NOT EXISTS likes (
+      post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
+      address VARCHAR(80) REFERENCES users(address),
+      created_at TIMESTAMP DEFAULT now(),
+      PRIMARY KEY (post_id, address)
+    )
   `);
+
   await query(`
-    CREATE TABLE IF NOT EXISTS post_comments (
-      id serial PRIMARY KEY,
-      post_id integer NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-      user_address text NOT NULL,
-      content text NOT NULL,
-      created_at timestamp default now()
-    );
+    CREATE TABLE IF NOT EXISTS comments (
+      id SERIAL PRIMARY KEY,
+      post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
+      user_address VARCHAR(80) REFERENCES users(address),
+      content TEXT,
+      created_at TIMESTAMP DEFAULT now()
+    )
   `);
-  await query(`
-    CREATE TABLE IF NOT EXISTS follows (
-      id serial PRIMARY KEY,
-      follower_address text NOT NULL,
-      following_address text NOT NULL,
-      created_at timestamp default now(),
-      UNIQUE (follower_address, following_address)
-    );
-  `);
-  await query(`UPDATE posts SET media_type = 'image' WHERE media_type IS NULL;`);
 }
 
-// AUTH
+// autenticação por assinatura
 app.post('/api/auth', async (req, res) => {
   const { address, message, signature } = req.body;
-  if (!address || !message || !signature) return res.status(400).json({ error: 'Missing auth data' });
+  if (!address || !message || !signature) {
+    return res.status(400).json({ error: 'Missing fields' });
+  }
 
-  const ok = verifySignature(address, message, signature);
-  if (!ok) return res.status(401).json({ error: 'Invalid signature' });
+  let recovered;
+  try {
+    recovered = ethers.verifyMessage(message, signature);
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  if (recovered.toLowerCase() !== address.toLowerCase()) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
 
   const addr = address.toLowerCase();
   await query(`INSERT INTO users (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`, [addr]);
@@ -133,6 +122,11 @@ app.post('/api/auth', async (req, res) => {
 // upload mídia de post
 app.post('/api/upload-media', upload.single('media'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
+  const isImage = req.file.mimetype && req.file.mimetype.startsWith('image/');
+  if (isImage && req.file.size > 2 * 1024 * 1024) {
+    try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(413).json({ error: 'Image too large. Max 2MB.' });
+  }
   res.json({ ok: true, url: '/uploads/' + req.file.filename });
 });
 
@@ -141,6 +135,10 @@ app.post('/api/profile/avatar', upload.single('avatar'), async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
   if (!req.file) return res.status(400).json({ error: 'No avatar' });
+  if (req.file.mimetype && req.file.mimetype.startsWith('image/') && req.file.size > 2 * 1024 * 1024) {
+    try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(413).json({ error: 'Avatar too large. Max 2MB.' });
+  }
   const url = '/uploads/' + req.file.filename;
   await query(`UPDATE users SET avatar_url = $1 WHERE address = $2`, [url, address]);
   res.json({ ok: true, avatar_url: url });
@@ -150,110 +148,104 @@ app.post('/api/profile/avatar', upload.single('avatar'), async (req, res) => {
 app.post('/api/posts', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
+
   const { media_url, caption } = req.body;
   if (!media_url) return res.status(400).json({ error: 'media_url required' });
-  const r = await query(
-    `INSERT INTO posts (user_address, media_url, media_type, caption)
-     VALUES ($1, $2, 'image', $3)
-     RETURNING *`,
-    [address, media_url, caption || null]
+
+  const result = await query(
+    `INSERT INTO posts (address, media_url, caption) VALUES ($1, $2, $3) RETURNING id, created_at`,
+    [address, media_url, caption || '']
   );
-  res.json(r.rows[0]);
+
+  res.json({
+    ok: true,
+    id: result.rows[0].id,
+    created_at: result.rows[0].created_at
+  });
 });
 
-// feed
+// listar posts
 app.get('/api/posts', async (req, res) => {
-  const viewer = getAddressFromReq(req);
-  const r = await query(`
+  const rows = await query(`
     SELECT
-      p.id,
-      p.user_address AS address,
-      p.media_url,
-      p.caption,
-      p.created_at,
+      p.*,
       u.username,
       u.avatar_url,
-      COALESCE(l.cnt, 0) AS like_count,
-      COALESCE(c.cnt, 0) AS comment_count
+      (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) AS like_count,
+      (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
     FROM posts p
-    LEFT JOIN users u ON u.address = p.user_address
-    LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM post_likes pl WHERE pl.post_id = p.id) l ON TRUE
-    LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM post_comments pc WHERE pc.post_id = p.id) c ON TRUE
+    LEFT JOIN users u ON u.address = p.address
     ORDER BY p.created_at DESC
-    LIMIT 200
   `);
-
-  let posts = r.rows;
-  if (viewer) {
-    const liked = await query(`SELECT post_id FROM post_likes WHERE user_address = $1`, [viewer]);
-    const likedSet = new Set(liked.rows.map(x => String(x.post_id)));
-    posts = posts.map(p => ({ ...p, liked: likedSet.has(String(p.id)) }));
+  const address = getAddressFromReq(req);
+  if (address) {
+    const likes = await query(`SELECT post_id FROM likes WHERE address = $1`, [address]);
+    const likedIds = new Set(likes.rows.map(r => r.post_id));
+    res.json(rows.rows.map(r => ({ ...r, liked: likedIds.has(r.id) })));
+  } else {
+    res.json(rows.rows);
   }
-
-  res.json(posts);
 });
 
-// like
+// deletar post (só dono)
+app.delete('/api/posts/:id', async (req, res) => {
+  const address = getAddressFromReq(req);
+  if (!address) return res.status(401).json({ error: 'Unauthorized' });
+
+  const postId = Number(req.params.id);
+  const post = await query(`SELECT * FROM posts WHERE id = $1`, [postId]);
+  if (post.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+
+  if (post.rows[0].address !== address) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  await query(`DELETE FROM posts WHERE id = $1`, [postId]);
+  res.json({ ok: true });
+});
+
+// like/unlike
 app.post('/api/posts/:id/like', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
-  const id = Number(req.params.id);
-  const exists = await query(
-    `SELECT id FROM post_likes WHERE post_id = $1 AND user_address = $2`,
-    [id, address]
-  );
-  if (exists.rowCount) {
-    await query(`DELETE FROM post_likes WHERE post_id = $1 AND user_address = $2`, [id, address]);
+
+  const postId = Number(req.params.id);
+  const already = await query(`SELECT 1 FROM likes WHERE post_id = $1 AND address = $2`, [postId, address]);
+  if (already.rows.length) {
+    await query(`DELETE FROM likes WHERE post_id = $1 AND address = $2`, [postId, address]);
   } else {
-    await query(
-      `INSERT INTO post_likes (post_id, user_address) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [id, address]
-    );
+    await query(`INSERT INTO likes (post_id, address) VALUES ($1, $2)`, [postId, address]);
   }
-  const count = await query(`SELECT COUNT(*) FROM post_likes WHERE post_id = $1`, [id]);
-  res.json({ ok: true, likes: Number(count.rows[0].count), liked: !exists.rowCount });
+
+  const count = await query(`SELECT COUNT(*) FROM likes WHERE post_id = $1`, [postId]);
+  res.json({ ok: true, likes: Number(count.rows[0].count), liked: !already.rows.length });
 });
 
 // comments
 app.get('/api/posts/:id/comments', async (req, res) => {
-  const id = Number(req.params.id);
-  const r = await query(
-    `SELECT pc.id, pc.post_id, pc.user_address, pc.content, pc.created_at,
-            u.username, u.avatar_url
-     FROM post_comments pc
-     LEFT JOIN users u ON u.address = pc.user_address
-     WHERE pc.post_id = $1
-     ORDER BY pc.created_at ASC`,
-    [id]
+  const postId = Number(req.params.id);
+  const rows = await query(
+    `SELECT c.*, u.username
+     FROM comments c
+     LEFT JOIN users u ON u.address = c.user_address
+     WHERE c.post_id = $1
+     ORDER BY c.created_at ASC`,
+    [postId]
   );
-  res.json(r.rows);
+  res.json(rows.rows);
 });
 
 app.post('/api/posts/:id/comments', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
-  const id = Number(req.params.id);
+  const postId = Number(req.params.id);
   const { content } = req.body;
-  if (!content || !content.trim()) return res.status(400).json({ error: 'content required' });
-  const r = await query(
-    `INSERT INTO post_comments (post_id, user_address, content)
-     VALUES ($1, $2, $3)
-     RETURNING *`,
-    [id, address, content.trim()]
-  );
-  res.json(r.rows[0]);
-});
+  if (!content) return res.status(400).json({ error: 'content required' });
 
-// delete post apenas do dono
-app.delete('/api/posts/:id', async (req, res) => {
-  const address = getAddressFromReq(req);
-  if (!address) return res.status(401).json({ error: 'Unauthorized' });
-  const id = Number(req.params.id);
-  const post = await query(`SELECT * FROM posts WHERE id = $1`, [id]);
-  if (!post.rowCount) return res.status(404).json({ error: 'not found' });
-  if (post.rows[0].user_address.toLowerCase() !== address.toLowerCase())
-    return res.status(403).json({ error: 'forbidden' });
-  await query(`DELETE FROM posts WHERE id = $1`, [id]);
+  await query(
+    `INSERT INTO comments (post_id, user_address, content) VALUES ($1, $2, $3)`,
+    [postId, address, content]
+  );
   res.json({ ok: true });
 });
 
@@ -262,27 +254,23 @@ app.get('/api/profile/me', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
 
-  const u = await query(`SELECT * FROM users WHERE address = $1`, [address]);
-  const user = u.rowCount ? u.rows[0] : { address };
-
-  const posts = await query(`SELECT COUNT(*) FROM posts WHERE user_address = $1`, [address]);
-  const followers = await query(`SELECT COUNT(*) FROM follows WHERE following_address = $1`, [address]);
-  const following = await query(`SELECT COUNT(*) FROM follows WHERE follower_address = $1`, [address]);
-
+  const user = await query(`SELECT * FROM users WHERE address = $1`, [address]);
+  const posts = await query(`SELECT COUNT(*) FROM posts WHERE address = $1`, [address]);
   res.json({
     address,
-    username: user.username,
-    bio: user.bio,
-    avatar_url: user.avatar_url,
+    username: user.rows[0].username,
+    bio: user.rows[0].bio,
+    avatar_url: user.rows[0].avatar_url,
     posts_count: Number(posts.rows[0].count),
-    followers_count: Number(followers.rows[0].count),
-    following_count: Number(following.rows[0].count)
+    followers_count: 0,
+    following_count: 0
   });
 });
 
 app.put('/api/profile', async (req, res) => {
   const address = getAddressFromReq(req);
   if (!address) return res.status(401).json({ error: 'Unauthorized' });
+
   const { username, bio, avatar_url } = req.body;
   await query(
     `UPDATE users SET username = $1, bio = $2, avatar_url = $3 WHERE address = $4`,
