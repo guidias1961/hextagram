@@ -107,10 +107,17 @@ body {
   font-size: 12px;
   width: fit-content;
 }
+
+/* main layout desktop instagram-like */
 .content {
   flex: 1;
   padding: 28px 24px 60px;
   max-width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.view {
+  width: min(980px, 100%);
 }
 .section-header {
   margin-bottom: 16px;
@@ -119,12 +126,13 @@ body {
   display: none;
 }
 
-/* FEED */
+/* FEED centralizado */
 .feed-list {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  width: min(700px, 100%);
+  width: min(630px, 100%);
+  margin: 0 auto;
 }
 .post-card {
   background: var(--panel);
@@ -244,21 +252,6 @@ button.small {
   font-size: 12px;
   padding: 3px 8px;
 }
-.preview {
-  width: 100%;
-  border: 1px dashed rgba(0,0,0,0.1);
-  border-radius: 10px;
-  min-height: 120px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0,0,0,0.02);
-}
-.preview img {
-  width: 100%;
-  border-radius: 10px;
-  object-fit: contain;
-}
 
 /* PROFILE */
 .profile-box {
@@ -267,7 +260,7 @@ button.small {
   box-shadow: var(--shadow);
   border: 1px solid rgba(0,0,0,0.03);
   padding: 16px 16px 18px;
-  width: min(700px, 100%);
+  width: min(630px, 100%);
   margin-bottom: 16px;
 }
 .profile-header {
@@ -357,6 +350,69 @@ button.small {
   margin-top: 8px;
 }
 
+/* mobile topbar */
+.mobile-topbar {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 54px;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  z-index: 40;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mobile-topbar .mt-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mobile-topbar img {
+  width: 30px;
+  height: 30px;
+}
+.mobile-topbar h1 {
+  font-size: 18px;
+  margin: 0;
+}
+.mobile-topbar .mt-right {
+  display: flex;
+  gap: 10px;
+  font-size: 14px;
+}
+
+/* mobile bottom nav */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 54px;
+  background: #fff;
+  border-top: 1px solid #e5e7eb;
+  z-index: 40;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+}
+.mobile-nav button {
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: #444;
+  flex: 1;
+  height: 100%;
+}
+.mobile-nav button.active {
+  color: #0088c4;
+  font-weight: 600;
+}
+
 /* RESPONSIVE */
 @media (max-width: 900px) {
   body {
@@ -366,8 +422,11 @@ button.small {
     display: none;
   }
   .content {
-    padding: 0 0 64px;
+    padding: 54px 0 60px;
     max-width: 100%;
+  }
+  .view {
+    width: 100%;
   }
   .section-header {
     display: none;
@@ -392,6 +451,12 @@ button.small {
   }
   .profile-posts {
     gap: 2px;
+  }
+  .mobile-topbar {
+    display: flex;
+  }
+  .mobile-nav {
+    display: flex;
   }
 }
 

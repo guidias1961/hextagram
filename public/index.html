@@ -8,6 +8,17 @@
     <link rel="icon" href="./logo.png" type="image/png" />
   </head>
   <body>
+    <!-- mobile topbar -->
+    <header class="mobile-topbar">
+      <div class="mt-left">
+        <img src="./logo.png" alt="Hextagram" />
+        <h1>Hextagram</h1>
+      </div>
+      <div class="mt-right">
+        <span>Pulse</span>
+      </div>
+    </header>
+
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
@@ -111,6 +122,14 @@
         <div id="post-modal-content" class="post-modal-content"></div>
       </div>
     </div>
+
+    <!-- mobile bottom nav -->
+    <nav class="mobile-nav">
+      <button id="m-nav-feed" class="active">Feed</button>
+      <button id="m-nav-explore">Explore</button>
+      <button id="m-nav-create">Create</button>
+      <button id="m-nav-profile">Profile</button>
+    </nav>
 
     <script type="module" src="./app.js"></script>
   </body>

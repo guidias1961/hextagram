@@ -1,4 +1,5 @@
 const API_BASE = `${window.location.origin}/api`;
+const STORAGE_KEY = 'hextagram-auth';
 
 const $ = id => document.getElementById(id);
 
@@ -31,7 +32,12 @@ const els = {
   commentsClose: $('comments-close'),
   postModal: $('post-modal'),
   postModalContent: $('post-modal-content'),
-  postClose: $('post-close')
+  postClose: $('post-close'),
+  // mobile
+  mFeedBtn: $('m-nav-feed'),
+  mExploreBtn: $('m-nav-explore'),
+  mCreateBtn: $('m-nav-create'),
+  mProfileBtn: $('m-nav-profile')
 };
 
 const state = {
@@ -48,6 +54,54 @@ function shorten(addr) {
   return addr.slice(0, 6) + '...' + addr.slice(-4);
 }
 
+function applyAuthToUI() {
+  if (state.address && els.addressLabel) {
+    els.addressLabel.textContent = shorten(state.address);
+  }
+  if (els.connectBtn) {
+    if (state.token) {
+      els.connectBtn.textContent = 'Connected';
+      els.connectBtn.disabled = true;
+    } else {
+      els.connectBtn.textContent = 'Connect';
+      els.connectBtn.disabled = false;
+    }
+  }
+}
+
+function saveAuth() {
+  if (state.token && state.address) {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ address: state.address, token: state.token })
+    );
+  } else {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
+function restoreAuth() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return;
+  try {
+    const data = JSON.parse(raw);
+    if (data && data.address && data.token) {
+      state.address = data.address;
+      state.token = data.token;
+      applyAuthToUI();
+    }
+  } catch (e) {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
+function clearAuth() {
+  state.address = null;
+  state.token = null;
+  saveAuth();
+  applyAuthToUI();
+}
+
 function setView(view) {
   state.currentView = view;
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
@@ -60,6 +114,19 @@ function setView(view) {
     if (state.viewingExternalProfile) renderProfile();
     else loadProfile();
   }
+
+  // mobile active state
+  const mobileButtons = [
+    els.mFeedBtn,
+    els.mExploreBtn,
+    els.mCreateBtn,
+    els.mProfileBtn
+  ];
+  mobileButtons.forEach(btn => btn && btn.classList.remove('active'));
+  if (view === 'feed' && els.mFeedBtn) els.mFeedBtn.classList.add('active');
+  if (view === 'explore' && els.mExploreBtn) els.mExploreBtn.classList.add('active');
+  if (view === 'create' && els.mCreateBtn) els.mCreateBtn.classList.add('active');
+  if (view === 'profile' && els.mProfileBtn) els.mProfileBtn.classList.add('active');
 }
 
 async function connectWallet() {
@@ -87,11 +154,8 @@ async function connectWallet() {
   const data = await r.json();
   state.address = data.address;
   state.token = data.token;
-  if (els.addressLabel) els.addressLabel.textContent = shorten(data.address);
-  if (els.connectBtn) {
-    els.connectBtn.textContent = 'Connected';
-    els.connectBtn.disabled = true;
-  }
+  applyAuthToUI();
+  saveAuth();
   loadFeed();
   loadProfile();
 }
@@ -235,86 +299,56 @@ async function loadComments(postId) {
 async function sendComment() {
   if (!els.commentsModal) return;
   const postId = els.commentsModal.dataset.postId;
-  const txt = els.commentsInput.value.trim();
-  if (!txt) return;
+  if (!postId) return;
   if (!state.token) {
     alert('Connect wallet');
     return;
   }
-  await fetch(`${API_BASE}/posts/${postId}/comments`, {
+  const text = els.commentsInput.value.trim();
+  if (!text) return;
+  const r = await fetch(`${API_BASE}/posts/${postId}/comments`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${state.token}`
     },
-    body: JSON.stringify({ content: txt })
+    body: JSON.stringify({ content: text })
   });
+  if (!r.ok) return;
   els.commentsInput.value = '';
-  await loadComments(postId);
-  await loadFeed();
+  loadComments(postId);
+  loadFeed();
 }
 
-async function submitCreate(e) {
-  e.preventDefault();
-  if (!state.token) {
-    alert('Connect wallet');
-    return;
-  }
-  const file = els.createFileInput.files[0];
-  if (!file) {
-    alert('Select an image');
-    return;
-  }
+function closeEditProfile() {
+  if (els.editModal) els.editModal.classList.add('hidden');
+}
 
-  const formData = new FormData();
-  formData.append('media', file);
+function openEditProfile() {
+  if (!state.profile) return;
+  els.editName.value = state.profile.username || '';
+  els.editBio.value = state.profile.bio || '';
+  els.editAvatarUrl.value = state.profile.avatar_url || '';
+  els.editModal.classList.remove('hidden');
+}
 
-  const up = await fetch(`${API_BASE}/upload-media`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${state.token}` },
-    body: formData
-  });
-
-  const upData = await up.json().catch(() => null);
-  if (!up.ok || !upData || !upData.url) {
-    alert('Upload failed');
-    return;
-  }
-
-  const r = await fetch(`${API_BASE}/posts`, {
-    method: 'POST',
+async function saveProfile() {
+  if (!state.token) return;
+  const body = {
+    username: els.editName.value,
+    bio: els.editBio.value,
+    avatar_url: els.editAvatarUrl.value
+  };
+  await fetch(`${API_BASE}/profile`, {
+    method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${state.token}`
     },
-    body: JSON.stringify({
-      media_url: upData.url,
-      caption: els.createCaption.value
-    })
+    body: JSON.stringify(body)
   });
-
-  if (!r.ok) {
-    alert('Post failed');
-    return;
-  }
-
-  els.createForm.reset();
-  els.createPreview.innerHTML = '';
-  setView('feed');
-  await loadFeed();
-}
-
-function handleCreatePreview() {
-  const file = els.createFileInput.files[0];
-  if (!file) {
-    els.createPreview.innerHTML = '';
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = () => {
-    els.createPreview.innerHTML = `<img src="${reader.result}" alt="preview" />`;
-  };
-  reader.readAsDataURL(file);
+  els.editModal.classList.add('hidden');
+  await loadProfile();
 }
 
 async function loadProfile() {
@@ -378,58 +412,10 @@ function renderProfile() {
   });
 }
 
-function openEditProfile() {
-  if (!els.editModal || !state.profile) return;
-  els.editModal.classList.remove('hidden');
-  els.editName.value = state.profile.username || '';
-  els.editBio.value = state.profile.bio || '';
-  els.editAvatarUrl.value = state.profile.avatar_url || '';
-}
-
-function closeEditProfile() {
-  if (els.editModal) els.editModal.classList.add('hidden');
-  if (els.editAvatarFile) els.editAvatarFile.value = '';
-}
-
-async function saveProfile() {
-  if (!state.token) return;
-  let avatarUrl = els.editAvatarUrl.value.trim();
-
-  const file = els.editAvatarFile.files[0];
-  if (file) {
-    const form = new FormData();
-    form.append('avatar', file);
-    const r = await fetch(`${API_BASE}/profile/avatar`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${state.token}` },
-      body: form
-    });
-    const d = await r.json();
-    avatarUrl = d.avatar_url;
-  }
-
-  await fetch(`${API_BASE}/profile`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${state.token}`
-    },
-    body: JSON.stringify({
-      username: els.editName.value.trim(),
-      bio: els.editBio.value.trim(),
-      avatar_url: avatarUrl
-    })
-  });
-
-  closeEditProfile();
-  await loadProfile();
-  await loadFeed();
-}
-
 async function toggleFollow(target) {
   if (!state.token) return;
-  const isFollowing = state.profile && state.profile.is_following;
-  if (isFollowing) {
+  const current = document.getElementById('profile-follow-btn');
+  if (current && current.dataset.followed === '1') {
     await fetch(`${API_BASE}/follow/${target}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${state.token}` }
@@ -444,45 +430,23 @@ async function toggleFollow(target) {
       body: JSON.stringify({ target })
     });
   }
-  const r = await fetch(`${API_BASE}/profile/${target}`, {
-    headers: { Authorization: `Bearer ${state.token}` }
-  });
-  state.profile = await r.json();
-  renderProfile();
+  await loadExternalProfile(target);
 }
 
-async function openUserProfile(address, username, avatar) {
-  const lower = address.toLowerCase();
-  if (state.address && state.address.toLowerCase() === lower) {
-    state.viewingExternalProfile = false;
-    setView('profile');
-    return;
-  }
+async function openUserProfile(address, username, avatarUrl) {
+  state.viewingExternalProfile = true;
+  await loadExternalProfile(address);
+  setView('profile');
+}
 
-  let data = null;
-  if (state.token) {
-    const r = await fetch(`${API_BASE}/profile/${lower}`, {
-      headers: { Authorization: `Bearer ${state.token}` }
-    });
-    if (r.ok) data = await r.json();
-  }
-
-  if (!data) {
-    data = {
-      address: lower,
-      username: username || shorten(lower),
-      avatar_url: avatar || '',
-      bio: '',
-      posts_count: state.posts.filter(p => p.address && p.address.toLowerCase() === lower).length,
-      followers_count: 0,
-      following_count: 0,
-      is_following: false
-    };
-  }
-
+async function loadExternalProfile(address) {
+  const r = await fetch(`${API_BASE}/profile/${address}`, {
+    headers: state.token ? { Authorization: `Bearer ${state.token}` } : {}
+  });
+  const data = await r.json();
   state.profile = data;
   state.viewingExternalProfile = true;
-  setView('profile');
+  renderProfile();
 }
 
 function openPost(post) {
@@ -506,6 +470,67 @@ async function loadExplore() {
   });
 }
 
+async function submitCreate(e) {
+  e.preventDefault();
+  if (!state.token) {
+    alert('Connect wallet first');
+    return;
+  }
+  const file = els.createFileInput.files[0];
+  if (!file) {
+    alert('Image required');
+    return;
+  }
+  const formData = new FormData();
+  formData.append('media', file);
+
+  const up = await fetch(`${API_BASE}/upload-media`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${state.token}` },
+    body: formData
+  });
+  const upData = await up.json().catch(() => null);
+  if (!up.ok || !upData || !upData.url) {
+    alert('Upload failed');
+    return;
+  }
+
+  const r = await fetch(`${API_BASE}/posts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${state.token}`
+    },
+    body: JSON.stringify({
+      media_url: upData.url,
+      caption: els.createCaption.value
+    })
+  });
+
+  if (!r.ok) {
+    alert('Post failed');
+    return;
+  }
+
+  els.createForm.reset();
+  els.createPreview.innerHTML = '';
+  setView('feed');
+  await loadFeed();
+}
+
+function handleCreatePreview() {
+  const file = els.createFileInput.files[0];
+  if (!file) {
+    els.createPreview.innerHTML = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    els.createPreview.innerHTML = `<img src="${reader.result}" alt="preview" />`;
+  };
+  reader.readAsDataURL(file);
+}
+
 function init() {
   if (els.feedBtn) els.feedBtn.onclick = () => setView('feed');
   if (els.exploreBtn) els.exploreBtn.onclick = () => setView('explore');
@@ -514,6 +539,16 @@ function init() {
     state.viewingExternalProfile = false;
     setView('profile');
   };
+
+  // mobile nav
+  if (els.mFeedBtn) els.mFeedBtn.onclick = () => setView('feed');
+  if (els.mExploreBtn) els.mExploreBtn.onclick = () => setView('explore');
+  if (els.mCreateBtn) els.mCreateBtn.onclick = () => setView('create');
+  if (els.mProfileBtn) els.mProfileBtn.onclick = () => {
+    state.viewingExternalProfile = false;
+    setView('profile');
+  };
+
   if (els.connectBtn) els.connectBtn.onclick = connectWallet;
   if (els.createForm) els.createForm.onsubmit = submitCreate;
   if (els.createFileInput) els.createFileInput.onchange = handleCreatePreview;
@@ -523,8 +558,28 @@ function init() {
   if (els.editCancel) els.editCancel.onclick = closeEditProfile;
   if (els.editSave) els.editSave.onclick = saveProfile;
 
+  restoreAuth();
+  applyAuthToUI();
   setView('feed');
   loadFeed();
+  if (state.token) loadProfile();
+
+  if (window.ethereum && typeof window.ethereum.on === 'function') {
+    window.ethereum.on('accountsChanged', accounts => {
+      if (!accounts || !accounts.length) {
+        clearAuth();
+        setView('feed');
+        loadFeed();
+        return;
+      }
+      const newAddress = accounts[0].toLowerCase();
+      if (state.address && state.address.toLowerCase() !== newAddress) {
+        clearAuth();
+        setView('feed');
+        loadFeed();
+      }
+    });
+  }
 }
 
 init();
