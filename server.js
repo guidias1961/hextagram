@@ -1,467 +1,282 @@
-import express from 'express';
-import cors from 'cors';
-import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
-import jwt from 'jsonwebtoken';
-import { ethers } from 'ethers';
-import { query } from './db.js';
+import express from "express";
+import cors from "cors";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+import pkg from "pg";
+
+const { Pool } = pkg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-
-// folders
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// front dir
-const publicDir = fs.existsSync(path.join(__dirname, 'public'))
-  ? path.join(__dirname, 'public')
-  : __dirname;
-
-const indexPath = fs.existsSync(path.join(publicDir, 'index.html'))
-  ? path.join(publicDir, 'index.html')
-  : path.join(__dirname, 'index.html');
+const port = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use('/uploads', express.static(uploadsDir));
-app.use(express.static(publicDir));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-const JWT_SECRET = process.env.JWT_SECRET || 'hextagram-secret';
+// uploads
+const uploadDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+app.use("/uploads", express.static(uploadDir));
 
-// multer local
+// static
+app.use(express.static(__dirname));
+
+// postgres inline
+const dbUrl = process.env.DATABASE_URL;
+if (!dbUrl) {
+  console.error("DATABASE_URL not set");
+}
+const pool = new Pool({
+  connectionString: dbUrl,
+  ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : false
+});
+
+// multer
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
+  destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || '');
-    cb(null, Date.now() + '-' + Math.round(Math.random() * 1e9) + ext);
+    const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname || "") || ".jpg";
+    cb(null, unique + ext);
   }
 });
 const upload = multer({ storage });
 
-// helpers
-function verifySignature(address, message, signature) {
+// helper
+async function getOrCreateUser(wallet) {
+  if (!wallet) return null;
+  const u = await pool.query("SELECT * FROM users WHERE wallet_address = $1", [wallet]);
+  if (u.rows.length) return u.rows[0];
+  const ins = await pool.query(
+    "INSERT INTO users (wallet_address) VALUES ($1) RETURNING *",
+    [wallet]
+  );
+  return ins.rows[0];
+}
+
+// routes
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
+});
+
+app.get("/api/posts", async (req, res) => {
   try {
-    const recovered = ethers.verifyMessage(message, signature);
-    return recovered.toLowerCase() === address.toLowerCase();
-  } catch (e) {
-    return false;
+    const r = await pool.query(`
+      SELECT p.*, u.username, u.bio, u.avatar_url
+      FROM posts p
+      LEFT JOIN users u ON u.wallet_address = p.wallet_address
+      ORDER BY p.created_at DESC
+      LIMIT 100
+    `);
+    res.json(r.rows);
+  } catch (err) {
+    console.error("get posts error:", err);
+    res.status(500).json({ error: "failed to load posts" });
   }
-}
-function makeToken(address) {
-  return jwt.sign({ address }, JWT_SECRET, { expiresIn: '30d' });
-}
-function getAddressFromReq(req) {
-  const auth = req.headers.authorization;
-  if (!auth) return null;
-  const token = auth.split(' ')[1];
+});
+
+app.get("/api/posts/:id/comments", async (req, res) => {
+  const { id } = req.params;
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    return decoded.address;
-  } catch (e) {
-    return null;
+    const r = await pool.query(
+      `
+      SELECT c.*, u.username, u.avatar_url
+      FROM post_comments c
+      LEFT JOIN users u ON u.wallet_address = c.wallet_address
+      WHERE c.post_id = $1
+      ORDER BY c.created_at ASC
+      `,
+      [id]
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("get comments error:", err);
+    res.status(500).json({ error: "failed to load comments" });
   }
-}
+});
 
-// migrations
-async function ensureTables() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS users (
-      address text PRIMARY KEY,
-      username text,
-      bio text,
-      avatar_url text,
-      created_at timestamp default now()
-    );
-  `);
-  await query(`
-    CREATE TABLE IF NOT EXISTS posts (
-      id serial PRIMARY KEY,
-      user_address text NOT NULL,
-      media_url text,
-      media_type text,
-      caption text,
-      created_at timestamp default now()
-    );
-  `);
-  await query(`
-    CREATE TABLE IF NOT EXISTS post_likes (
-      id serial PRIMARY KEY,
-      post_id integer NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-      user_address text NOT NULL,
-      created_at timestamp default now(),
-      UNIQUE (post_id, user_address)
-    );
-  `);
-  await query(`
-    CREATE TABLE IF NOT EXISTS post_comments (
-      id serial PRIMARY KEY,
-      post_id integer NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-      user_address text NOT NULL,
-      content text NOT NULL,
-      created_at timestamp default now()
-    );
-  `);
-  await query(`
-    CREATE TABLE IF NOT EXISTS follows (
-      id serial PRIMARY KEY,
-      follower_address text NOT NULL,
-      following_address text NOT NULL,
-      created_at timestamp default now(),
-      UNIQUE (follower_address, following_address)
-    );
-  `);
-  // normalize older rows
-  await query(`UPDATE posts SET media_type = 'image' WHERE media_type IS NULL;`);
-}
+app.post("/api/posts", upload.single("image"), async (req, res) => {
+  const { wallet_address, caption } = req.body;
+  const file = req.file;
 
-// AUTH wallet
-app.post('/api/auth', async (req, res) => {
-  const { address, message, signature } = req.body;
-  if (!address || !message || !signature) {
-    return res.status(400).json({ error: 'Missing auth data' });
+  if (!wallet_address) return res.status(400).json({ error: "wallet_address required" });
+  if (!file) return res.status(400).json({ error: "image required" });
+
+  const mediaUrl = "/uploads/" + file.filename;
+  const mediaType = file.mimetype || "image/jpeg";
+
+  try {
+    await getOrCreateUser(wallet_address);
+
+    const q = await pool.query(
+      `
+      INSERT INTO posts (wallet_address, media_url, media_type, caption, created_at, likes, comments)
+      VALUES ($1, $2, $3, $4, NOW(), 0, 0)
+      RETURNING *
+      `,
+      [wallet_address, mediaUrl, mediaType, caption || null]
+    );
+
+    res.json(q.rows[0]);
+  } catch (err) {
+    console.error("create post error:", err);
+    res.status(500).json({ error: "failed to create post" });
   }
-  const ok = verifySignature(address, message, signature);
-  if (!ok) return res.status(401).json({ error: 'Invalid signature' });
-
-  const addr = address.toLowerCase();
-  await query(
-    `INSERT INTO users (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`,
-    [addr]
-  );
-
-  const token = makeToken(addr);
-  return res.json({ token, address: addr });
 });
 
-// upload post media
-app.post('/api/upload-media', upload.single('media'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file' });
-  return res.json({ ok: true, url: '/uploads/' + req.file.filename });
-});
+app.post("/api/posts/:id/like", async (req, res) => {
+  const { id } = req.params;
+  const { wallet_address } = req.body;
+  if (!wallet_address) return res.status(400).json({ error: "wallet_address required" });
 
-// upload avatar
-app.post('/api/profile/avatar', upload.single('avatar'), async (req, res) => {
-  const address = getAddressFromReq(req);
-  if (!address) return res.status(401).json({ error: 'Unauthorized' });
-  if (!req.file) return res.status(400).json({ error: 'No avatar' });
+  try {
+    await getOrCreateUser(wallet_address);
 
-  const avatarUrl = '/uploads/' + req.file.filename;
-  await query(
-    `UPDATE users SET avatar_url = $1 WHERE address = $2`,
-    [avatarUrl, address]
-  );
-  return res.json({ ok: true, avatar_url: avatarUrl });
-});
-
-// create post
-app.post('/api/posts', async (req, res) => {
-  const address = getAddressFromReq(req);
-  if (!address) return res.status(401).json({ error: 'Unauthorized' });
-
-  const { media_url, caption } = req.body;
-  if (!media_url) return res.status(400).json({ error: 'media_url required' });
-
-  const result = await query(
-    `INSERT INTO posts (user_address, media_url, media_type, caption)
-     VALUES ($1, $2, 'image', $3)
-     RETURNING *`,
-    [address, media_url, caption || null]
-  );
-  return res.json(result.rows[0]);
-});
-
-// list posts (feed / explore)
-app.get('/api/posts', async (req, res) => {
-  const viewer = getAddressFromReq(req);
-
-  const result = await query(`
-    SELECT
-      p.id,
-      p.user_address AS address,
-      p.media_url,
-      p.caption,
-      p.created_at,
-      u.username,
-      u.avatar_url,
-      COALESCE(l.cnt, 0) AS like_count,
-      COALESCE(c.cnt, 0) AS comment_count
-    FROM posts p
-    LEFT JOIN users u ON u.address = p.user_address
-    LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM post_likes pl WHERE pl.post_id = p.id) l ON TRUE
-    LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM post_comments pc WHERE pc.post_id = p.id) c ON TRUE
-    ORDER BY p.created_at DESC
-    LIMIT 200
-  `);
-
-  let posts = result.rows;
-
-  if (viewer) {
-    const liked = await query(
-      `SELECT post_id FROM post_likes WHERE user_address = $1`,
-      [viewer]
+    const liked = await pool.query(
+      "SELECT id FROM post_likes WHERE post_id = $1 AND wallet_address = $2",
+      [id, wallet_address]
     );
-    const likedSet = new Set(liked.rows.map(r => String(r.post_id)));
-    posts = posts.map(p => ({
-      ...p,
-      liked: likedSet.has(String(p.id))
-    }));
-  }
 
-  return res.json(posts);
+    if (!liked.rows.length) {
+      await pool.query(
+        "INSERT INTO post_likes (post_id, wallet_address, created_at) VALUES ($1, $2, NOW())",
+        [id, wallet_address]
+      );
+    } else {
+      await pool.query(
+        "DELETE FROM post_likes WHERE post_id = $1 AND wallet_address = $2",
+        [id, wallet_address]
+      );
+    }
+
+    const count = await pool.query("SELECT COUNT(*) FROM post_likes WHERE post_id = $1", [id]);
+    const likes = Number(count.rows[0].count || 0);
+    await pool.query("UPDATE posts SET likes = $1 WHERE id = $2", [likes, id]);
+
+    res.json({ likes });
+  } catch (err) {
+    console.error("like error:", err);
+    res.status(500).json({ error: "failed to like" });
+  }
 });
 
-// posts de um user específico (pra explore/perfil público)
-app.get('/api/posts/by/:address', async (req, res) => {
-  const viewAddr = req.params.address.toLowerCase();
-  const viewer = getAddressFromReq(req);
+app.post("/api/posts/:id/comment", async (req, res) => {
+  const { id } = req.params;
+  const { wallet_address, text } = req.body;
+  if (!wallet_address) return res.status(400).json({ error: "wallet_address required" });
+  if (!text) return res.status(400).json({ error: "text required" });
 
-  const postsRes = await query(
-    `
-    SELECT
-      p.id,
-      p.user_address AS address,
-      p.media_url,
-      p.caption,
-      p.created_at,
-      u.username,
-      u.avatar_url,
-      COALESCE(l.cnt, 0) AS like_count,
-      COALESCE(c.cnt, 0) AS comment_count
-    FROM posts p
-    LEFT JOIN users u ON u.address = p.user_address
-    LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM post_likes pl WHERE pl.post_id = p.id) l ON TRUE
-    LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM post_comments pc WHERE pc.post_id = p.id) c ON TRUE
-    WHERE p.user_address = $1
-    ORDER BY p.created_at DESC
-  `,
-    [viewAddr]
-  );
+  try {
+    await getOrCreateUser(wallet_address);
 
-  let posts = postsRes.rows;
-
-  if (viewer) {
-    const liked = await query(
-      `SELECT post_id FROM post_likes WHERE user_address = $1`,
-      [viewer]
+    await pool.query(
+      "INSERT INTO post_comments (post_id, wallet_address, text, created_at) VALUES ($1, $2, $3, NOW())",
+      [id, wallet_address, text]
     );
-    const likedSet = new Set(liked.rows.map(r => String(r.post_id)));
-    posts = posts.map(p => ({
-      ...p,
-      liked: likedSet.has(String(p.id))
-    }));
-  }
 
-  return res.json(posts);
+    const count = await pool.query("SELECT COUNT(*) FROM post_comments WHERE post_id = $1", [id]);
+    const comments = Number(count.rows[0].count || 0);
+    await pool.query("UPDATE posts SET comments = $1 WHERE id = $2", [comments, id]);
+
+    res.json({ comments });
+  } catch (err) {
+    console.error("comment error:", err);
+    res.status(500).json({ error: "failed to comment" });
+  }
 });
 
-// like / unlike
-app.post('/api/posts/:id/like', async (req, res) => {
-  const address = getAddressFromReq(req);
-  if (!address) return res.status(401).json({ error: 'Unauthorized' });
-  const postId = Number(req.params.id);
-  if (!postId) return res.status(400).json({ error: 'Invalid post id' });
+app.delete("/api/posts/:id", async (req, res) => {
+  const { id } = req.params;
+  const { wallet_address } = req.body;
+  if (!wallet_address) return res.status(400).json({ error: "wallet_address required" });
 
-  const already = await query(
-    `SELECT id FROM post_likes WHERE post_id = $1 AND user_address = $2`,
-    [postId, address]
-  );
+  try {
+    const p = await pool.query("SELECT * FROM posts WHERE id = $1", [id]);
+    if (!p.rows.length) return res.status(404).json({ error: "not found" });
+    if (p.rows[0].wallet_address.toLowerCase() !== wallet_address.toLowerCase()) {
+      return res.status(403).json({ error: "not owner" });
+    }
 
-  if (already.rowCount > 0) {
-    await query(
-      `DELETE FROM post_likes WHERE post_id = $1 AND user_address = $2`,
-      [postId, address]
+    await pool.query("DELETE FROM post_comments WHERE post_id = $1", [id]);
+    await pool.query("DELETE FROM post_likes WHERE post_id = $1", [id]);
+    await pool.query("DELETE FROM posts WHERE id = $1", [id]);
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("delete error:", err);
+    res.status(500).json({ error: "failed to delete" });
+  }
+});
+
+app.get("/api/explore", async (req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT p.*, u.username, u.avatar_url
+      FROM posts p
+      LEFT JOIN users u ON u.wallet_address = p.wallet_address
+      ORDER BY p.likes DESC, p.comments DESC, p.created_at DESC
+      LIMIT 100
+    `);
+    res.json(r.rows);
+  } catch (err) {
+    console.error("explore error:", err);
+    res.status(500).json({ error: "failed to load explore" });
+  }
+});
+
+app.get("/api/users/:wallet", async (req, res) => {
+  const { wallet } = req.params;
+  try {
+    const u = await getOrCreateUser(wallet);
+    const posts = await pool.query(
+      "SELECT * FROM posts WHERE wallet_address = $1 ORDER BY created_at DESC",
+      [wallet]
     );
-  } else {
-    await query(
-      `INSERT INTO post_likes (post_id, user_address) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [postId, address]
-    );
+    res.json({ user: u, posts: posts.rows });
+  } catch (err) {
+    console.error("get user error:", err);
+    res.status(500).json({ error: "failed to load user" });
   }
-
-  const count = await query(
-    `SELECT COUNT(*) FROM post_likes WHERE post_id = $1`,
-    [postId]
-  );
-
-  return res.json({
-    ok: true,
-    likes: Number(count.rows[0].count),
-    liked: already.rowCount === 0
-  });
 });
 
-// comments
-app.get('/api/posts/:id/comments', async (req, res) => {
-  const postId = Number(req.params.id);
-  const result = await query(
-    `SELECT pc.id,
-            pc.post_id,
-            pc.user_address,
-            pc.content,
-            pc.created_at,
-            u.username,
-            u.avatar_url
-     FROM post_comments pc
-     LEFT JOIN users u ON u.address = pc.user_address
-     WHERE pc.post_id = $1
-     ORDER BY pc.created_at ASC`,
-    [postId]
-  );
-  return res.json(result.rows);
-});
-
-app.post('/api/posts/:id/comments', async (req, res) => {
-  const address = getAddressFromReq(req);
-  if (!address) return res.status(401).json({ error: 'Unauthorized' });
-  const postId = Number(req.params.id);
-  const { content } = req.body;
-  if (!content || !content.trim())
-    return res.status(400).json({ error: 'content required' });
-
-  const result = await query(
-    `INSERT INTO post_comments (post_id, user_address, content)
-     VALUES ($1, $2, $3)
-     RETURNING *`,
-    [postId, address, content.trim()]
-  );
-  return res.json(result.rows[0]);
-});
-
-// delete post
-app.delete('/api/posts/:id', async (req, res) => {
-  const address = getAddressFromReq(req);
-  if (!address) return res.status(401).json({ error: 'Unauthorized' });
-  const postId = Number(req.params.id);
-
-  const post = await query(`SELECT * FROM posts WHERE id = $1`, [postId]);
-  if (post.rowCount === 0) return res.status(404).json({ error: 'Post not found' });
-
-  if (post.rows[0].user_address.toLowerCase() !== address.toLowerCase()) {
-    return res.status(403).json({ error: 'Not your post' });
-  }
-
-  await query(`DELETE FROM posts WHERE id = $1`, [postId]);
-  return res.json({ ok: true });
-});
-
-// my profile
-app.get('/api/profile/me', async (req, res) => {
-  const address = getAddressFromReq(req);
-  if (!address) return res.status(401).json({ error: 'Unauthorized' });
-
-  const userRes = await query(`SELECT * FROM users WHERE address = $1`, [address]);
-  const user = userRes.rowCount > 0 ? userRes.rows[0] : { address };
-
-  const postCountRes = await query(`SELECT COUNT(*) FROM posts WHERE user_address = $1`, [address]);
-  const followersRes = await query(`SELECT COUNT(*) FROM follows WHERE following_address = $1`, [address]);
-  const followingRes = await query(`SELECT COUNT(*) FROM follows WHERE follower_address = $1`, [address]);
-
-  return res.json({
-    address,
-    username: user.username,
-    bio: user.bio,
-    avatar_url: user.avatar_url,
-    posts_count: Number(postCountRes.rows[0].count),
-    followers_count: Number(followersRes.rows[0].count),
-    following_count: Number(followingRes.rows[0].count)
-  });
-});
-
-// public profile by address (for clickable user in feed)
-app.get('/api/profile/by/:address', async (req, res) => {
-  const viewer = getAddressFromReq(req);
-  const target = req.params.address.toLowerCase();
-
-  const userRes = await query(`SELECT * FROM users WHERE address = $1`, [target]);
-  if (userRes.rowCount === 0) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-  const user = userRes.rows[0];
-
-  const postsCount = await query(`SELECT COUNT(*) FROM posts WHERE user_address = $1`, [target]);
-  const followersCount = await query(`SELECT COUNT(*) FROM follows WHERE following_address = $1`, [target]);
-  const followingCount = await query(`SELECT COUNT(*) FROM follows WHERE follower_address = $1`, [target]);
-
-  let isFollowing = false;
-  if (viewer) {
-    const f = await query(
-      `SELECT id FROM follows WHERE follower_address = $1 AND following_address = $2`,
-      [viewer.toLowerCase(), target]
-    );
-    isFollowing = f.rowCount > 0;
-  }
-
-  return res.json({
-    address: target,
-    username: user.username,
-    bio: user.bio,
-    avatar_url: user.avatar_url,
-    posts_count: Number(postsCount.rows[0].count),
-    followers_count: Number(followersCount.rows[0].count),
-    following_count: Number(followingCount.rows[0].count),
-    is_me: viewer ? viewer.toLowerCase() === target : false,
-    is_following: isFollowing
-  });
-});
-
-// update my profile
-app.put('/api/profile', async (req, res) => {
-  const address = getAddressFromReq(req);
-  if (!address) return res.status(401).json({ error: 'Unauthorized' });
-
+const avatarUpload = multer({ storage });
+app.post("/api/users/:wallet", avatarUpload.single("avatar"), async (req, res) => {
+  const { wallet } = req.params;
   const { username, bio, avatar_url } = req.body;
-  await query(
-    `UPDATE users SET username = $1, bio = $2, avatar_url = $3 WHERE address = $4`,
-    [username || null, bio || null, avatar_url || null, address]
-  );
-  return res.json({ ok: true });
+  let finalAvatar = avatar_url || null;
+  if (req.file) {
+    finalAvatar = "/uploads/" + req.file.filename;
+  }
+
+  try {
+    await getOrCreateUser(wallet);
+    const q = await pool.query(
+      `
+      UPDATE users
+      SET username = COALESCE($1, username),
+          bio = COALESCE($2, bio),
+          avatar_url = COALESCE($3, avatar_url)
+      WHERE wallet_address = $4
+      RETURNING *
+      `,
+      [username || null, bio || null, finalAvatar, wallet]
+    );
+    res.json(q.rows[0]);
+  } catch (err) {
+    console.error("update user error:", err);
+    res.status(500).json({ error: "failed to update user" });
+  }
 });
 
-// follow / unfollow
-app.post('/api/follow/:address', async (req, res) => {
-  const me = getAddressFromReq(req);
-  const other = req.params.address.toLowerCase();
-  if (!me) return res.status(401).json({ error: 'Unauthorized' });
-  if (me.toLowerCase() === other) return res.status(400).json({ error: 'Cannot follow yourself' });
-
-  await query(
-    `INSERT INTO follows (follower_address, following_address)
-     VALUES ($1, $2)
-     ON CONFLICT DO NOTHING`,
-    [me.toLowerCase(), other]
-  );
-  return res.json({ ok: true });
-});
-
-app.delete('/api/follow/:address', async (req, res) => {
-  const me = getAddressFromReq(req);
-  const other = req.params.address.toLowerCase();
-  if (!me) return res.status(401).json({ error: 'Unauthorized' });
-
-  await query(
-    `DELETE FROM follows WHERE follower_address = $1 AND following_address = $2`,
-    [me.toLowerCase(), other]
-  );
-  return res.json({ ok: true });
-});
-
-// SPA fallback
-app.get('/', (req, res) => res.sendFile(indexPath));
-app.get('/index.html', (req, res) => res.sendFile(indexPath));
-app.get('*', (req, res) => res.sendFile(indexPath));
-
-const PORT = process.env.PORT || 3000;
-
-ensureTables().then(() => {
-  app.listen(PORT, () => {
-    console.log('Hextagram running on', PORT);
-  });
+app.listen(port, () => {
+  console.log("Hextagram on", port);
 });
 
