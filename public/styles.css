@@ -111,6 +111,8 @@ body {
   flex: 1;
   padding: 28px 24px 60px;
   max-width: 100%;
+  display: flex;
+  justify-content: center;
 }
 .section-header {
   margin-bottom: 16px;
@@ -124,7 +126,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  width: min(700px, 100%);
+  width: 100%;
+  max-width: 470px;
 }
 .post-card {
   background: var(--panel);
@@ -325,11 +328,20 @@ button.small {
   padding: 0;
 }
 .post-modal-content {
-  max-width: 580px;
-  width: min(580px, 96vw);
+  width: min(470px, 96vw);
+  max-height: 90vh;
 }
 .post-card-modal {
-  border-radius: 16px;
+  max-width: 470px;
+  margin: 0 auto;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.post-card-modal .post-media img {
+  width: 100%;
+  height: auto;
+  max-height: 55vh;
+  object-fit: contain;
 }
 
 /* MODALS */
@@ -416,6 +428,15 @@ button.small {
   }
   .profile-posts {
     gap: 2px;
+  }
+  .post-modal-content,
+  .post-card-modal {
+    width: 100vw;
+    max-width: 100vw;
+    border-radius: 0;
+  }
+  .post-card-modal .post-media img {
+    max-height: 50vh;
   }
 }
 
